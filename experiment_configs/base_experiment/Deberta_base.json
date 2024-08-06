@@ -1,0 +1,66 @@
+{
+    "input_data": {
+        "split": true,
+        "train_split": 0.8,
+        "train_params": {
+            "batch_size": [
+                4
+            ],
+            "shuffle": true,
+            "num_workers": 0,
+            "pin_memory": false
+        },
+        "valid_split": 0.2,
+        "valid_params": {
+            "batch_size": 64,
+            "shuffle": true,
+            "num_workers": 0,
+            "pin_memory": false
+        },
+        "dataset": {
+            "params": {
+                "name": "BERTDialogue",
+                "augmented_non_pii": false,
+                "augmented_pii": false,
+                "add_synthetic": true,
+                "exclude_labels": [
+                    "other",
+                    "racial_identifier"
+                ],
+                "label_scheme": "IO"
+            },
+            "ids_to_labels": []
+        }
+    },
+    "experiment": {
+        "model": {
+            "params": {
+                "name": "DeBERTa",
+                "from_pretrained": true,
+                "max_len": 512
+            },
+            "pretrained_params": {
+                "pretrained_model_name_or_path": "microsoft/deberta-v3-base"
+            }
+        },
+        "trainer": {
+            "name": "DialogueTrainer",
+            "val_every": 1,
+            "epochs": [
+                1
+            ],
+            "use_tqdm": false,
+            "grad_clipping_max_norm": 10,
+            "optimizer": {
+                "name": "Adam",
+                "params": {
+                    "lr": [
+                        1e-05
+                    ]
+                }
+            },
+            "resume_checkpoint_path": ""
+        },
+        "seed": 42
+    }
+}

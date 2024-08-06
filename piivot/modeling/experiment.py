@@ -14,10 +14,10 @@ from itertools import product
 
 from piivot.utils import Config
 from piivot.utils import Persistence
-from .BERTDialogueDataset import BERTDialogueDataset, MultiSentenceBERTDialogueDataset
-from .Tracker import WandbTracker
-from .DialogueTrainer import DialogueTrainer
-from .DialogueEvaluator import DialogueEvaluator
+from .bert_dialogue_dataset import BERTDialogueDataset, MultiSentenceBERTDialogueDataset
+from .tracker import WandbTracker
+from .dialogue_trainer import DialogueTrainer
+from .dialogue_evaluator import DialogueEvaluator
 from piivot.utils.immutable import global_immutable
 from piivot.utils.console import console
 from piivot.utils import set_seed

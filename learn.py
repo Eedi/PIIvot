@@ -38,8 +38,10 @@ def main(args: argparse.Namespace) -> None:
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
     
-    config_filepaths = Path(args.exp_folder).glob("*.json")
+    exp_folder = Path(args.exp_folder).resolve()
+    config_filepaths = exp_folder.glob("*.json")
     config_filepaths = list(config_filepaths) # unsure why this is necessary. Calling list(config_filepaths) causes config_filepaths to == []
+    console.print(f"Loading {len(config_filepaths)} config(s) from {exp_folder}")
 
     if args.test_config:
         config_filepaths = [config for config in config_filepaths if config.name == args.test_config]

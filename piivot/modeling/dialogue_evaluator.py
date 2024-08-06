@@ -11,7 +11,7 @@ from sklearn.metrics import (
     balanced_accuracy_score,
 )
 
-from .Tracker import Tracker
+from .tracker import Tracker
 from piivot.utils.immutable import global_immutable
 
 DEFAULT_DEVICE = "cpu"

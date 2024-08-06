@@ -1,7 +1,7 @@
 """Factory for creating instances of classes based on a string identifier."""
 
 from torch.utils.data import Dataset
-from .BERTDialogueDataset import BERTDialogueDataset, MultiSentenceBERTDialogueDataset
+from .bert_dialogue_dataset import BERTDialogueDataset, MultiSentenceBERTDialogueDataset
 
 
 def create_dataset(dataset_name: str, *args, **kwargs) -> Dataset:

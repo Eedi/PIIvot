@@ -7,8 +7,8 @@ from pandas import DataFrame
 import wandb
 from tqdm.autonotebook import tqdm, trange
 
-from .Tracker import WandbTracker
-from .DialogueEvaluator import DialogueEvaluator
+from .tracker import WandbTracker
+from .dialogue_evaluator import DialogueEvaluator
 from piivot.utils.immutable import global_immutable
 from piivot.utils.console import console
 from piivot.utils import ExperimentConfig

@@ -40,8 +40,10 @@ For a closer look, you can explore the core module's primary code located at `pi
 - OpenAI API Key
     
     To anonymize data with the Anonymizer you’ll need an active OpenAI API key.
-    
 
+- (Optional) Huggingface Account
+  
+    To use Eedi's finetuned models, you may need to request access for your Huggingface account. Once you've been granted access to the hub, use `huggingface-cli login` with a User Access Token that has 'Read access to contents of all public gated repos you can access'.
 ## 2.2 Installation <a id="installation"></a> ⏬
 
 ### Poetry
@@ -132,7 +134,7 @@ data = [
 ]
 df = pd.DataFrame(data, columns=["message"])
 
-analyzer = Analyzer()
+analyzer = Analyzer("Eedi/DeBERTa-PIIvot-NER-IO")
 df = analyzer.analyze(df, ['message']
 
 print(df.head())

@@ -15,7 +15,8 @@ DEFAULT_DEVICE = 'cpu'
 
 class Analyzer():
     '''Analyzer Engine.'''
-    
+    punctuation_chars = ['.', ',', '!', '?', '(', ')', '[', ']', '{', '}', "'", '"', ';', ':']
+
     def __init__(self, 
                  pretrained_model_name_or_path, 
                  device=DEFAULT_DEVICE, 
@@ -28,12 +29,17 @@ class Analyzer():
         self.token_classifier = pipeline(task="ner", model=self.model, tokenizer=self.tokenizer, aggregation_strategy="first", device=device)
 
     def remove_trailing_punctuation(self, data: str, end_index: int) -> int:
-        if end_index > 1 and data[end_index - 1] in ['.', ',', '!', '?']:
-            substring = data[:end_index]
-            pattern = r'[!?\.,]+$'
-            cleaned_substring = re.sub(pattern, '', substring)
+        # if end_index > 1 and data[end_index - 1] in ['.', ',', '!', '?', '(', ')', '[', ']', '{', '}', "'", '"', ';', ':']:
+        #     substring = data[:end_index]
+        #     # Updated pattern to match various punctuation marks
+        #     pattern = r'[.!?,;:"\'(){}\[\]<>]+$'
+        #     cleaned_substring = re.sub(pattern, '', substring)
             
-            end_index = len(cleaned_substring)
+        #     # Update end_index based on the cleaned substring
+        #     end_index = len(cleaned_substring)
+
+        while end_index > 0 and data[end_index - 1] in Analyzer.punctuation_chars:
+            end_index -= 1
         
         if end_index > 2 and data[end_index - 2:end_index] == "'s":
             end_index = end_index - 2
@@ -44,9 +50,13 @@ class Analyzer():
         substring = data[start_index:]
 
         non_whitespace_index = len(substring) - len(substring.lstrip())
-        new_start_index = start_index + non_whitespace_index
-        
-        return new_start_index
+        start_index = start_index + non_whitespace_index
+
+        # Keep increasing start_index until we hit a non-punctuation character or the beginning of the string
+        while start_index <= len(data) and data[start_index] in Analyzer.punctuation_chars:
+            start_index += 1
+
+        return start_index
     
     def group_data(self,
                    group, 

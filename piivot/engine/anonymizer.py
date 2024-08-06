@@ -1,4 +1,6 @@
+import datetime
 from transformers import GPT2Tokenizer #TODO look into better token estimator
+import tiktoken
 import Levenshtein
 import re
 import itertools
@@ -73,7 +75,7 @@ def is_tutor(isTutor):
         case 0:
             return "STUDENT"
 
-gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find replacements for each that anonymize the original string but are not obviously anonymized. Favor using words not present in the data. When two strings to be anonymized are similar or contain similar words, ensure their replacements are also similar. Use chat history under [[CHAT HISTORY]] for added context for each replacement. Your response should be a dictionary in the form {[original text]: [anonymized text]}. [original text] should always be lowercase, even if the text is cased differently in the chat history"
+gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data. When two strings to be anonymized have similar spellings or contain similarly spelled words, ensure both replacements have similar spellings to each other. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. [original text] should always be lowercase, even if the text is cased differently in the chat history"
 gpt_missing_reprompt = "Your prior response is missing replacements for some of the required text. Make sure to create anonymized replacements for the exact spellings of all strings. Use prior responses to generate similarly spelled replacements for strings that were originally similarly spelled. Generate a dictionary in the form {[original_string]: [anonymized_string]} for the following list of strings."
 gpt_feedback_reprompt = "Your prior response doesn't meet all replacement criteria. Generate a dictionary in the form {[original_string]: [new_anonymized_string]} where the newly anonymized string follows the feedback provided after [[FEEDBACK]] for each of the following strings."
 
@@ -124,19 +126,36 @@ def extract_dictionary(response):
     return None
 
 class LabelAnonymizationManager():
+
+    def get_similar_words(self, str1, str2):
+        words1 = set(str1.split())
+        words2 = set(str2.split())
+        
+        similar_words = set()
+
+        for word1 in words1:
+            for word2 in words2:
+                if Levenshtein.distance(word1, word2) <= self.distance_threshold:
+                    similar_words.add((word1, word2))
+
+        return similar_words
+
     def name_feedback_func(self, original_text, anonymized_text):
         feedback = ""
         if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
             feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different word.")
             
-        # for prior_name in self.prior_mappings["NAME"]:
-        #     # Check if the Levenshtein distance between key and original_text is less or equal to 1
-        #     if Levenshtein.distance(prior_name, original_text) <= self.distance_threshold and prior_name != original_text:
-        #         # Get the corresponding value from prior_mappings
-        #         prior_mapped_name = self.prior_mappings["NAME"][prior_name]
-        #         # Check if the Levenshtein distance between anonymized_text and mapped_text is larger
-        #         if Levenshtein.distance(anonymized_text, prior_mapped_name) > self.distance_threshold:
-        #            feedback = self.append_feedback(feedback, f"The similarly spelled name {prior_name} was anonymized to {prior_mapped_name}. Ensure the anonymized replacement for {original_text} is the same name as {prior_mapped_name}, but matches the character differences between {original_text} and {prior_name}.")
+        prior_mappings = self.get_prior_label_mappings("NAME")
+        for prior_name in prior_mappings:
+            if prior_name != original_text:
+                similar_words = self.get_similar_words(prior_name, 
+                                                      original_text)
+                prior_mapped_name = prior_mappings[prior_name]
+
+                anonymized_similar_words = self.get_similar_words(prior_mapped_name, 
+                                                                 anonymized_text)
+                if len(similar_words) > len(anonymized_similar_words):
+                    feedback = self.append_feedback(feedback, f"The previously anonymized word {prior_name} was anonymized to {prior_mapped_name}. {prior_name} and {original_text} share the following similarly spelled words: {similar_words}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_name} is to {prior_mapped_name}.")
 
         return feedback
     
@@ -147,16 +166,38 @@ class LabelAnonymizationManager():
 
         if contains_counting_sequence(anonymized_text):
             feedback = self.append_feedback(feedback, f"{anonymized_text} contains ascending or descending strings of digits. Ensure the anonymized phone number doesn't look fake.")
-                
+        
+        prior_mappings = self.get_prior_label_mappings("PHONE_NUMBER")
+        for prior_number in prior_mappings:
+            if prior_number != original_text:
+                similar_numbers = self.get_similar_words(prior_number, 
+                                                        original_text)
+                prior_mapped_number = prior_mappings[prior_number]
+
+                anonymized_similar_numbers = self.get_similar_words(prior_mapped_number, 
+                                                                   anonymized_text)
+                if len(similar_numbers) > len(anonymized_similar_numbers):
+                    feedback = self.append_feedback(feedback, f"The previously anonymized phone number {prior_number} was anonymized to {prior_mapped_number}. {prior_number} and {original_text} share the following similarly spelled numbers: {similar_numbers}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_number} is to {prior_mapped_number}.")
+
         return feedback
     
     def location_address_feedback_func(self, original_text, anonymized_text):
         feedback = ""
 
-        for orig_word in original_text.split():
-            for anon_word in anonymized_text.split():
-                if Levenshtein.distance(orig_word, anon_word) <= self.distance_threshold:
-                    feedback = self.append_feedback(feedback, f"{anon_word} in {anonymized_text} is too similar to {orig_word} in {original_text}. Ensure the anonymized location/address doesn't contain any similar words.")
+        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
+            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different word.")
+        
+        prior_mappings = self.get_prior_label_mappings("LOCATION_ADDRESS")
+        for prior_location in prior_mappings:
+            if prior_location != original_text:
+                similar_locations = self.get_similar_words(prior_location, 
+                                                          original_text)
+                prior_mapped_location = prior_mappings[prior_location]
+
+                anonymized_similar_locations = self.get_similar_words(prior_mapped_location, 
+                                                                     anonymized_text)
+                if len(similar_locations) > len(anonymized_similar_locations):
+                    feedback = self.append_feedback(feedback, f"The previously anonymized location {prior_location} was anonymized to {prior_mapped_location}. {prior_location} and {original_text} share the following similarly spelled words: {similar_locations}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_location} is to {prior_mapped_location}.")
 
         return feedback
     
@@ -170,6 +211,18 @@ class LabelAnonymizationManager():
         for school_stage_identifier in school_stage_identifiers:
             if school_stage_identifier in original_text.lower() and school_stage_identifier not in anonymized_text.lower():
                 feedback = self.append_feedback(feedback, f"{original_text} refers to a {school_stage_identifier} stage school. Ensure the anonymized school name also uses the word {school_stage_identifier}.")
+        
+        prior_mappings = self.get_prior_label_mappings("SCHOOL_NAME")
+        for prior_name in prior_mappings:
+            if prior_name != original_text:
+                similar_names = self.get_similar_words(prior_name, 
+                                                      original_text)
+                prior_mapped_name = prior_mappings[prior_name]
+
+                anonymized_similar_names = self.get_similar_words(prior_mapped_name, 
+                                                                 anonymized_text)
+                if len(similar_names) > len(anonymized_similar_names):
+                    feedback = self.append_feedback(feedback, f"The previously anonymized school name {prior_name} was anonymized to {prior_mapped_name}. {prior_name} and {original_text} share the following similarly spelled words: {similar_names}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_name} is to {prior_mapped_name}.")
 
         return feedback
     
@@ -177,6 +230,19 @@ class LabelAnonymizationManager():
         feedback = ""
         if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
             feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different day, month, and/or year.")
+        
+        prior_mappings = self.get_prior_label_mappings("DATE_OF_BIRTH")
+        for prior_dob in prior_mappings:
+            if prior_dob != original_text:
+                similar_dobs = self.get_similar_words(prior_dob, 
+                                                     original_text)
+                prior_mapped_dob = prior_mappings[prior_dob]
+
+                anonymized_similar_dobs = self.get_similar_words(prior_mapped_dob,
+                                                                anonymized_text)
+                if len(similar_dobs) > len(anonymized_similar_dobs):
+                    feedback = self.append_feedback(feedback, f"The previously anonymized birthday {prior_dob} was anonymized to {prior_mapped_dob}. {prior_dob} and {original_text} share the following similarly spelled words: {similar_dobs}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_dob} is to {prior_mapped_dob}.")
+
         return feedback
     
     def default_feedback_func(self, original_text, anonymized_text):
@@ -221,23 +287,29 @@ class LabelAnonymizationManager():
         
         feedback = self.feedback_func_dictionary.get(label_name, self.default_feedback_func)(original_text, anonymized_text)
 
-        # if feedback:
-        #     self.prior_mappings[label_name].pop(original_text, None)
+        if feedback:
+            self.prior_mappings[label_name].pop(original_text, None)
 
         return feedback
 
 
-    # def update_prior_label_mapping(self, label_name, additional_mappings):
-    #     label_prior_mappings = self.prior_mappings.get(label_name)
-    #     label_prior_mappings.update(additional_mappings)
-
-    #     return label_prior_mappings.copy()
+    def update_prior_label_mappings(self, additional_mappings):
+        for key, value in additional_mappings.items():
+            if key in self.prior_mappings:
+                self.prior_mappings[key].update(value)
+            else:
+                self.prior_mappings[key] = value
     
+    def clear_prior_label_mappings(self):
+        self.prior_mappings = {}
     
-    # def get_prior_label_mappings(self, label_name):
-    #     label_prior_mappings = self.prior_mappings.get(label_name)
+    def get_prior_label_mappings(self, label_name):
+        if label_name in self.prior_mappings:
+            label_prior_mappings = self.prior_mappings.get(label_name)
 
-    #     return label_prior_mappings.copy()
+            return label_prior_mappings.copy()
+        else:
+            return []
 
 class Anonymizer():
     
@@ -264,15 +336,37 @@ class Anonymizer():
         self.feedback_reprompt = feedback_reprompt
         self.reprompt_additional_tokens = reprompt_additional_tokens
 
+        self.logs = []
+        self.anonymize_call_count = 0
+        self.debug_logs = True
+
         if not self.client:
-            self.dev_tokenizer = GPT2Tokenizer.from_pretrained("gpt2") # TODO calcualte how "off" this estimate is. Try tiktoken
+            self.dev_tokenizer = enc = tiktoken.encoding_for_model(self.gpt_model) #GPT2Tokenizer.from_pretrained("gpt2") # TODO calcualte how "off" this estimate is. Try tiktoken
             self.token_count = []
         else:
             print("GPTAnonymizer is Live. Subsequent calls to anonymize will incure a cost on this client.")
 
 
+    def log(self, message):
+        if self.debug_logs:
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            self.logs[-1] += f"[{current_time}]\n{message}\n\n"
+
+    def initialize_new_log(self, identifier):
+        if self.debug_logs:
+            self.logs.append("")
+            self.log(identifier)
+
+    def print_logs(self):
+        print("\n\n\n".join(self.logs))
+
+    def write_logs_to_file(self, filename):
+        with open(filename, 'w') as file:
+            file.write("\n\n\n".join(self.logs))
+
     def count_tokens(self, prompt):
-        tokens = self.dev_tokenizer.encode(prompt, add_special_tokens=False)
+        tokens = self.dev_tokenizer.encode(prompt)
         num_tokens = len(tokens)
 
         return num_tokens
@@ -353,7 +447,7 @@ class Anonymizer():
 
         return reprompt, gpt_target_list
     
-    def generate_new_mappings(self, prompt_messages, labeled_substrings, assert_targets=[], mappings={}, additional_max_tokens=0, debug_content=""):
+    def generate_new_mappings(self, prompt_messages, labeled_substrings, assert_targets=[], additional_max_tokens=0, debug_content=""):
         if not debug_content:
             chat_completion = self.client.chat.completions.create(
                 messages = prompt_messages,
@@ -362,18 +456,26 @@ class Anonymizer():
                 frequency_penalty=self.frequency_penalty,
                 model=self.gpt_model,
             )
-            print(chat_completion.choices[0].message.content)
+            self.log(chat_completion.choices[0].message.content)
 
             new_mappings = extract_dictionary(chat_completion.choices[0].message.content)
         else:
-            print(debug_content)
+            self.log(debug_content)
             new_mappings = extract_dictionary(debug_content)
         new_mappings = {key.lower(): value for key, value in new_mappings.items()}
 
         if assert_targets:
             assert all(target in new_mappings for target in assert_targets), f"Elements still missing from {assert_targets} in response mapping {new_mappings}"
-
-        new_mappings = mappings | new_mappings
+        
+        labeled_mappings = {}
+        for label in labeled_substrings:
+            labeled_mappings[label] = {}
+            for labeled_substing in labeled_substrings[label]:
+                if labeled_substing in new_mappings:
+                    labeled_mappings[label][labeled_substing] = new_mappings[labeled_substing]
+            pass
+        self.label_manager.update_prior_label_mappings(labeled_mappings)
+        # all_mappings = mappings | new_mappings
 
         # if labeled_substrings.get('NAME'):
         #     new_names = {key: new_mappings[key] for key in new_mappings if key in labeled_substrings['NAME']}
@@ -406,6 +508,7 @@ class Anonymizer():
                 group_prompt = f"{group_prompt} [[{label}]]:{gpt_target_list}" # -> "Hi Tom, how are you? I'm good cindy! Just raining here in new york" -> [[NAME]] [tom, cindy] [[LOCATION_ADDRESS]] [new york]
         
         new_mappings = {}
+        self.label_manager.clear_prior_label_mappings()
         
         if all_gpt_targets:
             # TODO create functions for these string concat variables
@@ -419,33 +522,36 @@ class Anonymizer():
             messages=[{"role": "system", "content": assistant_group_prompt},
                       {"role": "user", "content": group_prompt}
                     ]
+            
+            self.log(messages)
+
             if self.client:
-                print("----")
-                print(messages)
-                print(all_gpt_targets)
+                self.log(all_gpt_targets)
                 new_mappings = self.generate_new_mappings(messages, labeled_substrings)
 
                 missing_reprompt, missing_targets = self.generate_missing_reprompt(new_mappings, all_gpt_targets)
-                print(missing_reprompt)
+                
                 if missing_reprompt:
                     messages=[{"role": "system", "content": assistant_group_prompt},
                               {"role": "user", "content": group_prompt},
                               {"role": "assistant", "content": str(new_mappings)},
                               {"role": "user", "content": missing_reprompt}
                              ]
-                    print(messages)
+                    self.log(messages)
 
-                    new_mappings = self.generate_new_mappings(messages, labeled_substrings, assert_targets=missing_targets, mappings=new_mappings, additional_max_tokens=self.reprompt_additional_tokens)
+                    new_mappings = new_mappings | self.generate_new_mappings(messages, labeled_substrings, assert_targets=missing_targets, additional_max_tokens=self.reprompt_additional_tokens)
 
-                feedback_reprompt, reprompt_targets = self.generate_feedback_reprompt(new_mappings, labeled_substrings, all_gpt_targets)
+                feedback_reprompt, reprompt_targets = self.generate_feedback_reprompt(new_mappings, labeled_substrings, all_gpt_targets) 
+                      
                 if feedback_reprompt:
                     messages=[{"role": "system", "content": assistant_group_prompt},
                               {"role": "user", "content": group_prompt},
                               {"role": "assistant", "content": str(new_mappings)},
                               {"role": "user", "content": feedback_reprompt}
                              ]
-                    print(messages)
-                    new_mappings = self.generate_new_mappings(messages, labeled_substrings, assert_targets=reprompt_targets, mappings=new_mappings, additional_max_tokens=self.reprompt_additional_tokens)
+                    self.log(messages)
+
+                    new_mappings = new_mappings | self.generate_new_mappings(messages, labeled_substrings, assert_targets=reprompt_targets, additional_max_tokens=self.reprompt_additional_tokens)
  
             else:
                 self.token_count.append(self.count_tokens(assistant_group_prompt) + self.count_tokens(group_prompt))
@@ -460,9 +566,14 @@ class Anonymizer():
                   data_columns, 
                   label_columns, 
                   context_groups=None,
-                  identifier_column=None):
+                  identifier_column=None,
+                  debug_logs=True):
         
+        self.debug_logs = debug_logs
+        self.anonymize_call_count+=1
+
         for data_column, label_column in zip(data_columns, label_columns):
+            self.initialize_new_log(f"{self.anonymize_call_count}_{data_column}")
             if context_groups:
                 df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
             else:

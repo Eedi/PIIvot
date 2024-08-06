@@ -5,7 +5,7 @@ import re
 from transformers import pipeline
 import pandas as pd
 from typing import List, Optional
-from datasets import dataset_dict
+from datasets import Dataset
 from transformers.pipelines.pt_utils import KeyDataset
 from transformers import AutoModelForTokenClassification, AutoTokenizer, pipeline, TokenClassificationPipeline
 import warnings

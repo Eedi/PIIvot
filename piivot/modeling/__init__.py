@@ -14,13 +14,13 @@ from .tokenizer_factory import create_tokenizer
 from .dataset_factory import create_dataset
 
 __all__ = [
-    "bert_dialogue_dataset",
+    "BERTDialogueDataset",
     "MultiSentenceBERTDialogueDataset",
     "DialogueDataset",
     "WandbTracker",
-    "tracker",
-    "dialogue_trainer",
-    "dialogue_evaluator",
+    "Tracker",
+    "DialogueTrainer",
+    "DialogueEvaluator",
     "Experiment",
     "create_optimizer",
     "create_model",

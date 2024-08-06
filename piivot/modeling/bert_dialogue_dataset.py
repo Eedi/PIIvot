@@ -25,8 +25,8 @@ def extract_flow_id(row):
 
 # TODO fix dataset to add encodings + propgate labels at __getitem__??? Refer to tutorial
 class BERTDialogueDataset(DialogueDataset):
-    def __init__(self, max_length, tokenizer, config):
-        super().__init__(config)
+    def __init__(self, data_filepath, max_length, tokenizer, config):
+        super().__init__(config, data_filepath)
 
         self.tokenizer = tokenizer
         self.max_len = max_length
@@ -210,8 +210,8 @@ class BERTDialogueDataset(DialogueDataset):
 
 
 class MultiSentenceBERTDialogueDataset(BERTDialogueDataset):
-    def __init__(self, max_length, tokenizer, config):
-        super().__init__(max_length, tokenizer, config)
+    def __init__(self, data_filepath, max_length, tokenizer, config):
+        super().__init__(data_filepath, max_length, tokenizer, config)
 
     # def __init__(self, df, max_length, tokenizer):
     #     super().__init__(df, max_length, tokenizer)

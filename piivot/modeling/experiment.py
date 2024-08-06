@@ -31,6 +31,7 @@ class Experiment:
         self,
         results_dirpath: Path,
         config_filepath: Path,
+        data_filepath: Path,
         resume_checkpoint_filename: str | None = None,
         test: bool = False
     ):
@@ -50,7 +51,7 @@ class Experiment:
         self.__setup__(results_dirpath, config_filepath, resume_checkpoint_filename, test)
 
         if not self.persistence.already_exists or global_immutable.rerun == True:
-            self.__load_data__()
+            self.__load_data__(data_filepath)
             self.__load_hyperparameters__()
             
             self.persistence.save_config(
@@ -129,7 +130,7 @@ class Experiment:
         
         return train_idx, aug_train_idx, train_minority_labels, test_idx, aug_test_idx
 
-    def __load_data__(self):
+    def __load_data__(self, data_filepath):
         console.rule("Step 2: Loading the data.")
 
         self.tokenizer = create_tokenizer(self.config.experiment.model.params.name, 
@@ -139,6 +140,7 @@ class Experiment:
         # TODO add logic for testing
 
         full_dataset = create_dataset(self.config.input_data.dataset.params.name,
+                                      data_filepath,
                                       self.config.experiment.model.params.max_len, 
                                       self.tokenizer,
                                       self.config.input_data.dataset)

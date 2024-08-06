@@ -3,6 +3,8 @@ import Levenshtein
 import re
 import itertools
 import ast
+import warnings
+
 
 def match_casing(reference_string, target_string):
     """
@@ -407,7 +409,11 @@ class Anonymizer():
         
         if all_gpt_targets:
             # TODO create functions for these string concat variables
-            grouped_data = '\n'.join([f"[[{dialogue_identifier_func(row[dialogue_identifier_column])}]] {row[data_column]}" for _, row in group.iterrows()])
+            if dialogue_identifier_column:
+                grouped_data = '\n'.join([f"[[{dialogue_identifier_func(row[dialogue_identifier_column])}]] {row[data_column]}" for _, row in group.iterrows()])
+            else:
+                grouped_data = '\n'.join([f"{row[data_column]}" for _, row in group.iterrows()])
+            
             group_prompt = f"{group_prompt}\n[[{group_name}]]\n{grouped_data}"
 
             messages=[{"role": "system", "content": assistant_group_prompt},
@@ -451,14 +457,20 @@ class Anonymizer():
     
     def anonymize(self, 
                   df, 
-                  data_columns=['Message'], 
-                  label_columns=['Message_labels'], 
-                  context_groups=['FlowGeneratorSessionInterventionId']):
+                  data_columns, 
+                  label_columns, 
+                  context_groups=None,
+                  identifier_column=None):
         
         for data_column, label_column in zip(data_columns, label_columns):
             if context_groups:
-                df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column)).reset_index(drop=True)
+                df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
             else:
-                df = df.groupby(level=0).apply(lambda group: self.anonymize_group(group, data_column, label_column)).reset_index(drop=True)
-                
-        return df
+                df = df.groupby(level=0).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
+
+        if not self.client:
+            # Issue a simple warning
+            warnings.warn(f"GPT client not set. Columns {data_columns} were not anonymized.")
+            print(f"Using a live gpt client would cost a minimum of {sum(self.token_count)} with up to ~3x tokens for subsequent reprompts.")
+
+        return df.drop(columns=data_columns + label_columns)

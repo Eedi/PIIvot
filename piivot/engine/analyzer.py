@@ -82,32 +82,44 @@ class Analyzer():
             
         return group
     
-    def process_batch(self, df_batch, labels_column, original_data_column):
+    def process_batch(self, df_batch, labels_column, original_data_column, context_groups):
         for i in range(len(df_batch)):
             row = df_batch.iloc[i]
             trimmed_labels = []
-            window_start = row[f'window_start_{original_data_column}']
-            window_end = row[f'window_end_{original_data_column}']
 
-            for label in row[labels_column]:
-                if label['end'] > window_start and label['start'] < window_end:
+            if context_groups:
+                window_start = row[f'window_start_{original_data_column}']
+                window_end = row[f'window_end_{original_data_column}']
 
-                    # Neccessary for deberta based models
+                for label in row[labels_column]:
+                    if label['end'] > window_start and label['start'] < window_end:
+
+                        # Neccessary for deberta based models
+                        label_start = self.remove_proceeding_space(row[original_data_column], 
+                                                                   max(label['start'] - window_start, 
+                                                                       0))
+                        
+                        # Optional. This is a choice to offload a few known edge-cases from the anonymization call. In theory, any un-removed punctuation should be maintained by the gpt anonymization.
+                        label_end = self.remove_trailing_punctuation(row[original_data_column], 
+                                                                     min(label['end'] - window_start, 
+                                                                         len(row[original_data_column])))
+                        
+                        # If a labeled span is just punctuation or whitespace, label_end could be less than label_start
+                        if label_end > label_start:
+                            trimmed_labels.append((label_start, 
+                                                   label_end, 
+                                                   label['entity_group']))
+            else:
+                for label in row[labels_column]:
                     label_start = self.remove_proceeding_space(row[original_data_column], 
-                                                               max(label['start'] - window_start, 
-                                                                   0))
-                    
-                    # Optional. This is a choice to offload a few known edge-cases from the anonymization call. In theory, any un-removed punctuation should be maintained by the gpt anonymization.
+                                                               label['start'])
                     label_end = self.remove_trailing_punctuation(row[original_data_column], 
-                                                                 min(label['end'] - window_start, 
-                                                                     len(row[original_data_column])))
-                    
-                    # If a labeled span is just punctuation or whitespace, label_end could be less than label_start
+                                                                 label['end'])
                     if label_end > label_start:
-                        trimmed_labels.append((label_start, 
-                                               label_end, 
-                                               label['entity_group']))
-            
+                            trimmed_labels.append((label_start, 
+                                                   label_end, 
+                                                   label['entity_group']))
+                    
             df_batch.at[row.name, labels_column] = trimmed_labels
 
         return df_batch
@@ -116,7 +128,7 @@ class Analyzer():
     def analyze(self, 
                 df: pd.DataFrame, 
                 data_columns: List[str],
-                context_groups: List[str] = ['FlowGeneratorSessionInterventionId'],
+                context_groups: List[str] = None,
                 batch_size: int = 16,
                 use_tqdm=True) -> pd.DataFrame:
         
@@ -150,9 +162,11 @@ class Analyzer():
             
             df = self.process_batch(df,
                                     new_label,
-                                    original_data_column)
+                                    original_data_column,
+                                    context_groups)
             
-            df.drop(columns=[data_column], inplace=True)
+            if context_groups:
+                df.drop(columns=[data_column], inplace=True)
                         
         return df
         

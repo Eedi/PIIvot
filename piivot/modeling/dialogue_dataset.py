@@ -26,9 +26,9 @@ def get_annotation_scheme_prefixes(scheme):
 
 
 class DialogueDataset(Dataset):
-    def __init__(self, config): #augmented_nonpii, augmented_pii, add_synthetic)
+    def __init__(self, config, data_filepath): #augmented_nonpii, augmented_pii, add_synthetic)
         self.config = config
-        self.__create_dataset__()
+        self.__create_dataset__(data_filepath)
         self.len = len(self.data)
 
     # def __init__(self, df):
@@ -40,12 +40,12 @@ class DialogueDataset(Dataset):
     def __len__(self):
         return self.len
     
-    def __create_dataset__(self):
+    def __create_dataset__(self, data_filepath):
         # TODO change this to a path to a local file.
         # if augmented_nonpii:
         #     dialogue_path = os.path.join(f"{DATA_PATH}/augmented-dialogue_070424.csv") #TODO Not up to date
-        # else:
-        dialogue_path = os.path.join("/final_extract/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx-PUBLIC/data/labeled-dialogue.csv")
+        # else: "/final_extract/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx-PUBLIC/data/labeled-dialogue.csv"
+        dialogue_path = os.path.join(data_filepath)
 
         self.data = pd.read_csv(dialogue_path)
         if not self.config.params.add_synthetic and 'synthetic' in self.data.columns:

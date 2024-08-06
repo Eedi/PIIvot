@@ -121,9 +121,10 @@ To create the environment:
 Example run for analyze and anonymize functions:
 
 ```python
-from piivot.engine import Analyzer
-from piivot.engine import Anonymizer
+from piivot.engine import Analyzer, Anonymizer, LabelAnonymizationManager
+
 from openai import OpenAI
+import pandas as pd
 
 data = [
     {"message": "Hi, I'm John and I live in New York."},
@@ -135,15 +136,26 @@ data = [
 df = pd.DataFrame(data, columns=["message"])
 
 analyzer = Analyzer("Eedi/DeBERTa-PIIvot-NER-IO")
-df = analyzer.analyze(df, ['message']
+df = analyzer.analyze(df, data_columns=['message'])
 
-print(df.head())
 
-gpt_client = OpenAi(api_key=os.getenv('OPENAI_API_KEY'))
-anonymizer = Anonymizer(gpt_client)
+# gpt_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+label_anon_manager = LabelAnonymizationManager()
+anonymizer = Anonymizer(label_anon_manager)
 
-anonymized_df = anonymizer.anonymize(df, columns: ['message'], labels=['message_labels'])
+anonymized_df = anonymizer.anonymize(df, data_columns=['message'], label_columns=['message_labels'])
 print(anonymized_df.head())
+```
+
+If running locally in a Jupyter Notebook, you can import the PIIvot Repo with the following code.
+
+```python
+import os
+import sys
+
+module_path = os.path.abspath(os.path.join([[Path to PIIvot Repo]]))
+if module_path not in sys.path:
+    sys.path.append(module_path)
 ```
 
 ## Using `PIIvot` in other repositories <a id=otherRepo></a>
@@ -198,7 +210,7 @@ PIIvot has built in support for a variety of model fine-tuning and experimentati
 Example experiment run using deberta_base_experiment
 
 ```bash
-poetry run python ./learn.py --exp_folder ./experiment_configs/deberta_base_experiment
+poetry run python ./learn.py --exp_folder ./experiment_configs/deberta_base_experiment --data_filepath [[data_filepath]]
 
 ```
 

@@ -9,9 +9,6 @@ from piivot.modeling import Experiment
 from piivot.utils.immutable import global_immutable
 from piivot.utils.console import console
 
-
-repo_path = Path(__file__).resolve().parents[0]
-
 RESULTS_DIRNAME = "results"
 
 def main(args: argparse.Namespace) -> None:
@@ -54,8 +51,9 @@ def main(args: argparse.Namespace) -> None:
 
     for config_filepath in config_filepaths:
         experiment = Experiment(
-            repo_path / RESULTS_DIRNAME,
+            Path(RESULTS_DIRNAME).resolve(),
             config_filepath,
+            Path(args.data_filepath),
             resume_checkpoint_filename=None,
             test=args.test_config != "",
         )
@@ -70,7 +68,11 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--exp_folder", type=str, required=True, help="Path to experiment folder containing configs."
+        "--exp_folder", type=str, required=True, help="Relative path to experiment folder containing configs (i.e., ./experiment_configs/deberta_base_experiment)."
+    )
+
+    parser.add_argument(
+        "--data_filepath", type=str, required=True, help="Absolute path to the csv containing data for this experiment."
     )
 
     parser.add_argument(

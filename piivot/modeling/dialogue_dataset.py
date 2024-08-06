@@ -7,7 +7,7 @@ import ast
 
 from piivot.utils.immutable import global_immutable
 
-from settings import DATA_PATH
+# from settings import DATA_PATH
 
 def extract_flow_message_id(row):
     meta_data = json.loads(row['example_metadata'])
@@ -45,7 +45,7 @@ class DialogueDataset(Dataset):
         # if augmented_nonpii:
         #     dialogue_path = os.path.join(f"{DATA_PATH}/augmented-dialogue_070424.csv") #TODO Not up to date
         # else:
-        dialogue_path = os.path.join(f"{DATA_PATH}/final_extract/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx-PUBLIC/data/labeled-dialogue.csv")
+        dialogue_path = os.path.join("/final_extract/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx/extract-tutor-student-dialogues-202407261503-f3cly7v85j7vstbyo7z279te2disqgyx-PUBLIC/data/labeled-dialogue.csv")
 
         self.data = pd.read_csv(dialogue_path)
         if not self.config.params.add_synthetic and 'synthetic' in self.data.columns:

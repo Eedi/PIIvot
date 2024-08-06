@@ -5,9 +5,9 @@ from pathlib import Path
 import torch
 from rich.panel import Panel
 
-from eedi_piivot.modeling import Experiment
-from eedi_piivot.utils.immutable import global_immutable
-from eedi_piivot.utils.console import console
+from piivot.modeling import Experiment
+from piivot.utils.immutable import global_immutable
+from piivot.utils.console import console
 
 
 repo_path = Path(__file__).resolve().parents[0]

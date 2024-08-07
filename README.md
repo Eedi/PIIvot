@@ -22,11 +22,11 @@ For a closer look, you can explore the core module's primary code located at `pi
 
 - `Analyzer`
     
-    TBD
+    Analyze specified data columns in the given DataFrame using a fine-tuned NER algorithm to label potentially sensitive information.
     
 - `Anonymizer`
     
-    TBD
+    Anonymize specified data columns in the given DataFrame using provided labeled spans (potentially from the Analyzer) and generate reasonable surrogate replacements to obfuscate potential PII.
     
 
 # 2. Setup <a id="setup"></a> 🧑‍🔬

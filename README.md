@@ -165,7 +165,7 @@ Previously we would have installed the package globally using `pip install -e .`
 1. Clone the repository:
     
     ```bash
-    git clone git@github.com:zentavious/PIIvot.git
+    git clone git@github.com:Eedi/PIIvot.git
     
     ```
     

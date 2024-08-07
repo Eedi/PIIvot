@@ -1,23 +1,22 @@
 import datetime
-from transformers import GPT2Tokenizer #TODO look into better token estimator
+from typing import Dict, List, Tuple
+import pandas as pd
 import tiktoken
-import Levenshtein
 import re
 import itertools
 import ast
 import warnings
 
-
 def match_casing(reference_string, target_string):
     """
-    Matches the casing (capitalization) of reference_string to target_string by words.
+    Matches the casing (capitalization) of reference_string to target_string by words. For uneven length words, an average casing is applied.
 
-    Parameters:
-    - reference_string (str): The string whose casing will be matched.
-    - target_string (str): The string whose casing will be applied to reference_string.
+    Args:
+        reference_string (str): The string whose casing will be matched.
+        target_string (str): The string whose casing will be applied to reference_string.
 
     Returns:
-    - str: The reference_string with casing matched to target_string.
+        str: The reference_string with casing matched to target_string.
     """
     
     ref_words = reference_string.split()
@@ -79,30 +78,6 @@ gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL
 gpt_missing_reprompt = "Your prior response is missing replacements for some of the required text. Make sure to create anonymized replacements for the exact spellings of all strings. Use prior responses to generate similarly spelled replacements for strings that were originally similarly spelled. Generate a dictionary in the form {[original_string]: [anonymized_string]} for the following list of strings."
 gpt_feedback_reprompt = "Your prior response doesn't meet all replacement criteria. Generate a dictionary in the form {[original_string]: [new_anonymized_string]} where the newly anonymized string follows the feedback provided after [[FEEDBACK]] for each of the following strings."
 
-
-def contains_counting_sequence(input_string):
-    """
-    Checks if the input_string contains any sequences of 3 or more digits
-    that count up or down (ignoring spaces).
-
-    Parameters:
-    - input_string (str): The string to check.
-
-    Returns:
-    - bool: True if the string contains such sequences, False otherwise.
-    """
-    sanitized_string = input_string.replace(' ', '')
-
-    digit_sequences = re.findall(r'\d+', sanitized_string)
-
-    for seq in digit_sequences:
-        if len(seq) >= 3:
-            for i in range(len(seq) - 2):
-                if (seq[i+1] == str(int(seq[i]) + 1) and seq[i+2] == str(int(seq[i+1]) + 1)) or \
-                   (seq[i+1] == str(int(seq[i]) - 1) and seq[i+2] == str(int(seq[i+1]) - 1)):
-                    return True
-    return False
-
 def extract_dictionary(response):
     """
     Extracts a dictionary from the given response string.
@@ -125,195 +100,6 @@ def extract_dictionary(response):
             pass
     return None
 
-class LabelAnonymizationManager():
-
-    def get_similar_words(self, str1, str2):
-        words1 = set(str1.split())
-        words2 = set(str2.split())
-        
-        similar_words = set()
-
-        for word1 in words1:
-            for word2 in words2:
-                if Levenshtein.distance(word1, word2) <= self.distance_threshold:
-                    similar_words.add((word1, word2))
-
-        return similar_words
-
-    def name_feedback_func(self, original_text, anonymized_text):
-        feedback = ""
-        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
-            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different name.")
-            
-        prior_mappings = self.get_prior_label_mappings("NAME")
-        for prior_name in prior_mappings:
-            if prior_name != original_text:
-                similar_words = self.get_similar_words(prior_name, 
-                                                      original_text)
-                prior_mapped_name = prior_mappings[prior_name]
-
-                anonymized_similar_words = self.get_similar_words(prior_mapped_name, 
-                                                                 anonymized_text)
-                if len(similar_words) > len(anonymized_similar_words):
-                    feedback = self.append_feedback(feedback, f"The previously anonymized word {prior_name} was anonymized to {prior_mapped_name}. {prior_name} and {original_text} share the following similarly spelled words: {similar_words}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_name} is to {prior_mapped_name}.")
-
-        return feedback
-    
-    def phone_number_feedback_func(self, original_text, anonymized_text):
-        feedback = ""
-        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
-            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different phone number.")
-            
-        if any(char.isalpha() for char in anonymized_text):
-            feedback = self.append_feedback(feedback, f"{anonymized_text} contains alphabetic characters. Ensure the anonymized phone number doesn't have any placeholder characters.")
-
-        if contains_counting_sequence(anonymized_text):
-            feedback = self.append_feedback(feedback, f"{anonymized_text} contains ascending or descending strings of digits. Ensure the anonymized phone number doesn't look fake.")
-        
-        prior_mappings = self.get_prior_label_mappings("PHONE_NUMBER")
-        for prior_number in prior_mappings:
-            if prior_number != original_text:
-                similar_numbers = self.get_similar_words(prior_number, 
-                                                        original_text)
-                prior_mapped_number = prior_mappings[prior_number]
-
-                anonymized_similar_numbers = self.get_similar_words(prior_mapped_number, 
-                                                                   anonymized_text)
-                if len(similar_numbers) > len(anonymized_similar_numbers):
-                    feedback = self.append_feedback(feedback, f"The previously anonymized phone number {prior_number} was anonymized to {prior_mapped_number}. {prior_number} and {original_text} share the following similarly spelled numbers: {similar_numbers}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_number} is to {prior_mapped_number}.")
-
-        return feedback
-    
-    def location_address_feedback_func(self, original_text, anonymized_text):
-        feedback = ""
-
-        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
-            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different word.")
-        
-        prior_mappings = self.get_prior_label_mappings("LOCATION_ADDRESS")
-        for prior_location in prior_mappings:
-            if prior_location != original_text:
-                similar_locations = self.get_similar_words(prior_location, 
-                                                          original_text)
-                prior_mapped_location = prior_mappings[prior_location]
-
-                anonymized_similar_locations = self.get_similar_words(prior_mapped_location, 
-                                                                     anonymized_text)
-                if len(similar_locations) > len(anonymized_similar_locations):
-                    feedback = self.append_feedback(feedback, f"The previously anonymized location {prior_location} was anonymized to {prior_mapped_location}. {prior_location} and {original_text} share the following similarly spelled words: {similar_locations}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_location} is to {prior_mapped_location}.")
-
-        return feedback
-    
-    def school_name_feedback_func(self, original_text, anonymized_text):
-        feedback = ""
-        school_stage_identifiers = [
-            'elementary', 'primary', 'middle', 'secondary', 'academy', 'middle school',
-            'middleschool', 'college', 'university', 'high school', 'highschool', 'high',
-            'kindergarten', 'nursery', 'reception', 'sixth form', 'junior', 'infant'
-        ]
-        for school_stage_identifier in school_stage_identifiers:
-            if school_stage_identifier in original_text.lower() and school_stage_identifier not in anonymized_text.lower():
-                feedback = self.append_feedback(feedback, f"{original_text} refers to a {school_stage_identifier} stage school. Ensure the anonymized school name also uses the word {school_stage_identifier}.")
-        
-        prior_mappings = self.get_prior_label_mappings("SCHOOL_NAME")
-        for prior_name in prior_mappings:
-            if prior_name != original_text:
-                similar_names = self.get_similar_words(prior_name, 
-                                                      original_text)
-                prior_mapped_name = prior_mappings[prior_name]
-
-                anonymized_similar_names = self.get_similar_words(prior_mapped_name, 
-                                                                 anonymized_text)
-                if len(similar_names) > len(anonymized_similar_names):
-                    feedback = self.append_feedback(feedback, f"The previously anonymized school name {prior_name} was anonymized to {prior_mapped_name}. {prior_name} and {original_text} share the following similarly spelled words: {similar_names}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_name} is to {prior_mapped_name}.")
-
-        return feedback
-    
-    def date_of_birth_feedback_func(self, original_text, anonymized_text):
-        feedback = ""
-        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
-            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different day, month, and/or year.")
-        
-        prior_mappings = self.get_prior_label_mappings("DATE_OF_BIRTH")
-        for prior_dob in prior_mappings:
-            if prior_dob != original_text:
-                similar_dobs = self.get_similar_words(prior_dob, 
-                                                     original_text)
-                prior_mapped_dob = prior_mappings[prior_dob]
-
-                anonymized_similar_dobs = self.get_similar_words(prior_mapped_dob,
-                                                                anonymized_text)
-                if len(similar_dobs) > len(anonymized_similar_dobs):
-                    feedback = self.append_feedback(feedback, f"The previously anonymized birthday {prior_dob} was anonymized to {prior_mapped_dob}. {prior_dob} and {original_text} share the following similarly spelled words: {similar_dobs}. Ensure the anonymized replacement for {original_text} follows the same pattern as {prior_dob} is to {prior_mapped_dob}.")
-
-        return feedback
-    
-    def default_feedback_func(self, original_text, anonymized_text):
-        return ""
-    
-    def append_feedback(self, feedback, new_feedback):
-        if feedback:
-            return f"{feedback} {new_feedback}"
-        else:
-            return new_feedback
-    
-    def __init__(self,
-                #  prior_mappings = {}, #TODO remove these, and add documentation about how we could do this and why we aren't
-                 distance_threshold = 1):
-        
-        # self.prior_mappings = prior_mappings
-        self.distance_threshold = distance_threshold
-        self.label_names = ['NAME','PHONE_NUMBER','LOCATION_ADDRESS','SCHOOL_NAME','DATE_OF_BIRTH']
-
-        # if not prior_mappings:
-        #     self.prior_mappings = {key: {} for key in self.label_names}
-
-        self.feedback_func_dictionary = {
-            "NAME": self.name_feedback_func,
-            "PHONE_NUMBER": self.phone_number_feedback_func,
-            "LOCATION_ADDRESS": self.location_address_feedback_func,
-            "SCHOOL_NAME": self.school_name_feedback_func,
-            "DATE_OF_BIRTH": self.date_of_birth_feedback_func,
-        }
-        self.assistant_label_prompts = {
-            "NAME": "When anonymizing [[NAME]], preserve their gender and ethnic background.",
-            "PHONE_NUMBER": "When anonymizing [[PHONE_NUMBER]], if there are any other references the digits or format of the phone number in the chat history ensure they still make sense.",
-            "LOCATION_ADDRESS": "When anonymizing multiple [[LOCATION_ADDRESS]], ensure the distances between them stay consistent.",
-            "SCHOOL_NAME": "When anonymizing [[SCHOOL_NAME]], ensure the resulting school has the same grade or year group.",
-            "DATE_OF_BIRTH": "When anonymizing [[DATE_OF_BIRTH]], ensure its replacement has the same specificity as the original and makes sense relative to other dates in the chat history.",
-        }
-        # TODO add enforcement between label_names and feedback and label prompts
-        # Add a class for each label -> has a name, feedback, and prompt for label -> require each peice.
-        # Register each of these classes to the default behavior of the anonymization manager
-
-    def get_anoymization_feedback(self, label_name, original_text, anonymized_text):
-        
-        feedback = self.feedback_func_dictionary.get(label_name, self.default_feedback_func)(original_text, anonymized_text)
-
-        if feedback:
-            self.prior_mappings[label_name].pop(original_text, None)
-
-        return feedback
-
-
-    def update_prior_label_mappings(self, additional_mappings):
-        for key, value in additional_mappings.items():
-            if key in self.prior_mappings:
-                self.prior_mappings[key].update(value)
-            else:
-                self.prior_mappings[key] = value
-    
-    def clear_prior_label_mappings(self):
-        self.prior_mappings = {}
-    
-    def get_prior_label_mappings(self, label_name):
-        if label_name in self.prior_mappings:
-            label_prior_mappings = self.prior_mappings.get(label_name)
-
-            return label_prior_mappings.copy()
-        else:
-            return []
-
 class Anonymizer():
     
     def __init__(self, 
@@ -331,18 +117,17 @@ class Anonymizer():
         Initialize the Anonymizer class with specified parameters for anonymizing future data. If no client is specified,
         the class will not anonymize data, but will count tokens used for anonymization calls.
 
-        Parameters:
-        - label_manager: An object responsible for managing labels.
-        - client (Optional): The OpenAI client interface for interacting with the Chat-GPT. Default is None.
-        - assistant_general_prompt (str): The general prompt used for the GPT assistant.  Default is behavior is povided in class.
-        - temperature (float): The sampling temperature for the GPT model, affecting the randomness of the output. Default is 0.2.
-        - max_tokens (int): The maximum number of tokens to include in the model's output. Default is 3000.
-        - frequency_penalty (float): The penalty for token frequency in the GPmodel's output, controlling the likelihood of repeating tokens. Default is 0.0.
-        - gpt_model (str): The GPT model name. Default is "gpt-3.5-turbo".
-        - missing_reprompt (str): The prompt to use when the model's response is missing information. Default is behavior is povided in class.
-        - feedback_reprompt (str): The prompt to use when additional feedback is needed from the model.  Default is behavior is povided in class.
-        - reprompt_additional_tokens (int): The additional tokens to allocate for reprompting per call. Default is 896.
-
+        Args:
+            label_manager: An object responsible for managing labels.
+            client (Optional): The OpenAI client interface for interacting with the Chat-GPT. Default is None.
+            assistant_general_prompt (str): The general prompt used for the GPT assistant. Default behavior is provided in class.
+            temperature (float): The sampling temperature for the GPT model, affecting the randomness of the output. Default is 0.2.
+            max_tokens (int): The maximum number of tokens to include in the model's output. Default is 3000.
+            frequency_penalty (float): The penalty for token frequency in the GPT model's output, controlling the likelihood of repeating tokens. Default is 0.0.
+            gpt_model (str): The GPT model name. Default is "gpt-3.5-turbo".
+            missing_reprompt (str): The prompt to use when the model's response is missing information. Default behavior is provided in class.
+            feedback_reprompt (str): The prompt to use when additional feedback is needed from the model. Default behavior is provided in class.
+            reprompt_additional_tokens (int): The additional tokens to allocate for reprompting per call. Default is 896.
         """
         self.label_manager = label_manager
         self.temperature = temperature
@@ -364,7 +149,6 @@ class Anonymizer():
             self.token_count = []
         else:
             print("GPTAnonymizer is Live. Subsequent calls to anonymize will incure a cost on this client.")
-
 
     def log(self, message):
         if self.debug_logs:
@@ -414,7 +198,24 @@ class Anonymizer():
 
         return group_labeled_substrings
         
-    def anonymize_data(self, data, labels, new_mappings):
+    def anonymize_data(self, 
+                       data: str, 
+                       labels: List[Tuple[int, int, str]], 
+                       new_mappings: Dict[str, str]) -> Tuple[str, List[Tuple[int, int, str]]]:
+        """
+        Anonymize the given data by applying the specified labels and new mappings.
+
+        Args:
+            data (str): The data to be anonymized.
+            labels (List[Tuple[int, int, str]]): A list of tuples where each tuple contains the start index,
+                end index, and label name for the portions of data to be anonymized.
+            new_mappings (dict[str, str]): A dictionary mapping original values to their anonymized counterparts.
+
+        Returns:
+        tuple (Tuple): A tuple containing:
+            - anonymized_data (str): The anonymized data with the specified labels applied and mappings implemented.
+            - new_labels (List[Tuple[int, int, str]]): A list of the new labeled spans of anonymized surrogates in the form (start_index, end_index, label_name).
+        """
         anonymized_data = data
         new_labels = sorted(labels, key=lambda x: x[1])
         if self.client:
@@ -466,7 +267,25 @@ class Anonymizer():
 
         return reprompt, gpt_target_list
     
-    def generate_new_mappings(self, prompt_messages, labeled_substrings, assert_targets=[], additional_max_tokens=0, debug_content=""):
+    def generate_new_mappings(self, 
+                              prompt_messages: List[Dict[str, str]], 
+                              labeled_substrings: Dict[str, str], 
+                              assert_targets: List[str]=[], 
+                              additional_max_tokens: int=0, 
+                              debug_content: str="") -> Dict[str, str]:
+        """
+        Generate new mappings for labeled substrings based on provided prompt messages.
+
+        Args:
+            prompt_messages (List[dict[str, str]]): A list of messages to be used as prompts for gpt_client.
+            labeled_substrings (dict[str, str]): A list of labeled substrings that need to be mapped.
+            assert_targets (List[str], optional): A list of target assertions to validate are present in the generated mappings. Default is an empty list.
+            additional_max_tokens (int, optional): Additional tokens to allocate for the generation process. Default is 0.
+            debug_content (str, optional): A debug prompt response. If provided, no prompt will be sent to gpt_client. Default is an empty string.
+
+        Returns:
+            Dict[str, str]: A dictionary containing the new mappings generated from the prompt to gpt_client.
+        """
         if not debug_content:
             chat_completion = self.client.chat.completions.create(
                 messages = prompt_messages,
@@ -475,7 +294,7 @@ class Anonymizer():
                 frequency_penalty=self.frequency_penalty,
                 model=self.gpt_model,
             )
-            self.log(chat_completion.choices[0].message.content)
+            self.log(f"GPT Response:\n{chat_completion.choices[0].message.content}")
 
             new_mappings = extract_dictionary(chat_completion.choices[0].message.content)
         else:
@@ -494,15 +313,30 @@ class Anonymizer():
                     labeled_mappings[label][labeled_substing] = new_mappings[labeled_substing]
             pass
         self.label_manager.update_prior_label_mappings(labeled_mappings)
-        # all_mappings = mappings | new_mappings
-
-        # if labeled_substrings.get('NAME'):
-        #     new_names = {key: new_mappings[key] for key in new_mappings if key in labeled_substrings['NAME']}
-        #     self.label_manager.update_prior_label_mapping("NAME", new_names)
         
         return new_mappings
 
-    def anonymize_group(self, group, data_column, label_column, group_name="CHAT HISTORY", dialogue_identifier_column='IsTutor', dialogue_identifier_func=is_tutor):
+    def anonymize_group(self, 
+                        group, 
+                        data_column: str, 
+                        label_column: str, 
+                        group_name: str="CHAT HISTORY", 
+                        dialogue_identifier_column: str='IsTutor',
+                        dialogue_identifier_func=is_tutor):
+        """
+        Anonymize the specified data column within a given group by prompting and reprompting gpt_client to generate surrogate replacements.
+
+        Args:
+            group (pd.DataFrame): The DataFrame group to be anonymized.
+            data_column (str): The name of the column containing the data to be anonymized.
+            label_column (str): The name of the column where the labels are be stored.
+            group_name (str, optional): The name to append before the grouped data prompt. Default is "CHAT HISTORY".
+            dialogue_identifier_column (str, optional): The name of the column used to identify the "who" of this data_column. Default is 'IsTutor'.
+            dialogue_identifier_func (function, optional): A function to apply to the values in dialogue_identifier_column to apply string values to rows of this group data prompt. Default is is_tutor.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the anonymized data and new updated label spans.
+        """
         labeled_substrings = self.extract_group_labeled_substrings(group, data_column, label_column)
         
         assistant_group_prompt = self.assistant_general_prompt
@@ -513,13 +347,6 @@ class Anonymizer():
 
             if label in self.label_manager.label_names:
                 gpt_target_list = labeled_substrings[label]
-            
-            # if label == "NAME":
-            #     for name in labeled_substrings[label]:
-            #         # if self.label_manager.get_prior_label_mappings("NAME").get(name) is None:
-            #         gpt_target_list.append(name)
-            # elif label in self.label_manager.label_names:
-            #     gpt_target_list = labeled_substrings[label]
 
             if gpt_target_list:
                 all_gpt_targets.extend(gpt_target_list)
@@ -530,7 +357,7 @@ class Anonymizer():
         self.label_manager.clear_prior_label_mappings()
         
         if all_gpt_targets:
-            # TODO create functions for these string concat variables
+            # append [[TUTOR]] or [[STUDENT]] to each message based on the speaker
             if dialogue_identifier_column:
                 grouped_data = '\n'.join([f"[[{dialogue_identifier_func(row[dialogue_identifier_column])}]] {row[data_column]}" for _, row in group.iterrows()])
             else:
@@ -542,10 +369,9 @@ class Anonymizer():
                       {"role": "user", "content": group_prompt}
                     ]
             
-            self.log(messages)
+            self.log(f"Sending prompt:\n{messages}")
 
             if self.client:
-                self.log(all_gpt_targets)
                 new_mappings = self.generate_new_mappings(messages, labeled_substrings)
 
                 missing_reprompt, missing_targets = self.generate_missing_reprompt(new_mappings, all_gpt_targets)
@@ -556,19 +382,19 @@ class Anonymizer():
                               {"role": "assistant", "content": str(new_mappings)},
                               {"role": "user", "content": missing_reprompt}
                              ]
-                    self.log(messages)
+                    self.log(f"Sending prompt:\n{messages}")
 
                     new_mappings = new_mappings | self.generate_new_mappings(messages, labeled_substrings, assert_targets=missing_targets, additional_max_tokens=self.reprompt_additional_tokens)
 
                 feedback_reprompt, reprompt_targets = self.generate_feedback_reprompt(new_mappings, labeled_substrings, all_gpt_targets) 
-                      
+
                 if feedback_reprompt:
                     messages=[{"role": "system", "content": assistant_group_prompt},
                               {"role": "user", "content": group_prompt},
                               {"role": "assistant", "content": str(new_mappings)},
                               {"role": "user", "content": feedback_reprompt}
                              ]
-                    self.log(messages)
+                    self.log(f"Sending prompt:\n{messages}")
 
                     new_mappings = new_mappings | self.generate_new_mappings(messages, labeled_substrings, assert_targets=reprompt_targets, additional_max_tokens=self.reprompt_additional_tokens)
  
@@ -581,29 +407,39 @@ class Anonymizer():
         return group
     
     def anonymize(self, 
-                  df, 
-                  data_columns, 
-                  label_columns, 
-                  context_groups=None,
-                  identifier_column=None,
-                  debug_logs=True):
+                  df: pd.DataFrame, 
+                  data_columns: List[str], 
+                  label_columns: List[str], 
+                  context_groups: List[str]=None,
+                  identifier_column: str=None,
+                  debug_logs: bool=True) -> pd.DataFrame:
         """
         Anonymize specified data columns in the given DataFrame by processing labeled sensitive information.
 
-        Parameters:
-        - df (pd.DataFrame): The input DataFrame containing the data to be anonymized.
-        - data_columns (List[str]): A list of column names in the DataFrame that contain the data to be anonymized.
-        - label_columns (List[str]): A list of column names where the labels are be stored.
-        - context_groups (List[str], optional): A list of column names that define the context groups for analysis. Grouped 
-        data will be batched in GPT calls. The behavior is recommend for cost and performance optimization. Default is None.
-        - identifier_column (str, optional): The name of the column containing personal identifiers for who the text data 
-        originates from if in a dialogue format. Default is None.
-        - debug_logs (bool, optional): Whether to store debug logs. Use print_logs or write_logs_to_file to retrieve. Default is True.
+        Args:
+            df (pd.DataFrame): The input DataFrame containing the data to be anonymized.
+            data_columns (List[str]): A list of column names in the DataFrame that contain the data to be anonymized.
+            label_columns (List[str]): A list of column names where the labels are stored.
+            context_groups (List[str], optional): A list of column names that define the context groups for analysis. Grouped 
+                data will be batched in GPT calls. This behavior is recommended for cost and performance optimization. Default is None.
+            identifier_column (str, optional): The name of the column containing personal identifiers for who the text data 
+                originates from if in a dialogue format. Default is None.
+            debug_logs (bool, optional): Whether to store debug logs. Use print_logs or write_logs_to_file to retrieve. Default is True.
 
         Returns:
-        - pd.DataFrame: A DataFrame containing the anonymized data and new lists of label spans in the form (start_index, end_index, label_name).
+            pd.DataFrame: A DataFrame containing the anonymized data and new lists of label spans in the form (start_index, end_index, label_name).
         """
-
+        if len(data_columns) != len(label_columns):
+            raise Exception("Length of data_columns must equal the length of label_columns")
+        
+        input_length = len(data_columns)
+        for i, (data_column, label_column) in enumerate(zip(reversed(data_columns), reversed(label_columns))):
+            original_i = input_length - 1 - i
+            if data_column not in df.columns or label_column not in df.columns:
+                warnings.warn(f"Either column '{data_column}' and/or '{label_column}' do not exist in the input dataframe. Skipping...")
+                data_columns.pop(original_i)
+                label_columns.pop(original_i)
+        
         self.debug_logs = debug_logs
         self.anonymize_call_count+=1
 

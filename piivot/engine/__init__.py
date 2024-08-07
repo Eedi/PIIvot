@@ -2,7 +2,7 @@
 
 from .analyzer import Analyzer
 from .anonymizer import Anonymizer
-from .anonymizer import LabelAnonymizationManager
+from .label_anonymization_manager import LabelAnonymizationManager
 
 __all__ = [
     "Analyzer",

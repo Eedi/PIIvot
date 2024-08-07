@@ -1,4 +1,5 @@
 import json
+from os import PathLike
 from pydantic import ValidationError
 import torch
 import re
@@ -18,9 +19,9 @@ class Analyzer():
     punctuation_chars = ['.', ',', '!', '?', '(', ')', '[', ']', '{', '}', "'", '"', ';', ':']
 
     def __init__(self, 
-                 pretrained_model_name_or_path, 
-                 device=DEFAULT_DEVICE, 
-                 surpress_warnings=True):
+                 pretrained_model_name_or_path: str | PathLike[str], 
+                 device: str=DEFAULT_DEVICE, 
+                 surpress_warnings: bool=True):
         if surpress_warnings:
             warnings.filterwarnings("ignore", module=".*token_classification")
 
@@ -28,16 +29,9 @@ class Analyzer():
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
         self.token_classifier = pipeline(task="ner", model=self.model, tokenizer=self.tokenizer, aggregation_strategy="first", device=device)
 
-    def remove_trailing_punctuation(self, data: str, end_index: int) -> int:
-        # if end_index > 1 and data[end_index - 1] in ['.', ',', '!', '?', '(', ')', '[', ']', '{', '}', "'", '"', ';', ':']:
-        #     substring = data[:end_index]
-        #     # Updated pattern to match various punctuation marks
-        #     pattern = r'[.!?,;:"\'(){}\[\]<>]+$'
-        #     cleaned_substring = re.sub(pattern, '', substring)
-            
-        #     # Update end_index based on the cleaned substring
-        #     end_index = len(cleaned_substring)
-
+    def remove_trailing_punctuation(self, 
+                                    data: str, 
+                                    end_index: int) -> int:
         while end_index > 0 and data[end_index - 1] in Analyzer.punctuation_chars:
             end_index -= 1
         
@@ -46,13 +40,14 @@ class Analyzer():
         
         return end_index
     
-    def remove_proceeding_space(self, data: str, start_index: int):
+    def remove_proceeding_space_and_punctuation(self, 
+                                                data: str, 
+                                                start_index: int):
         substring = data[start_index:]
 
         non_whitespace_index = len(substring) - len(substring.lstrip())
         start_index = start_index + non_whitespace_index
 
-        # Keep increasing start_index until we hit a non-punctuation character or the beginning of the string
         while start_index <= len(data) and data[start_index] in Analyzer.punctuation_chars:
             start_index += 1
 
@@ -61,6 +56,16 @@ class Analyzer():
     def group_data(self,
                    group, 
                    data_columns: List[str]):
+        """
+        Group the data based on the provided grouping criteria by joining proceeding and trailing data columns into combined_{data_column}.
+
+        Parameters:
+        - group: a pd.DataFrame from a df.groupby() call.
+        - data_columns (List[str]): A list of column names in the DataFrame that contain the data to be grouped and analyzed.
+
+        Returns:
+        - pd.DataFrame: The group with window_start, window_end, and combined columns for each data_column.
+        """
         window_starts = []
         window_ends = []
         combined_messages = []
@@ -92,7 +97,26 @@ class Analyzer():
             
         return group
     
-    def process_batch(self, df_batch, labels_column, original_data_column, context_groups):
+    def process_batch(self, 
+                      df_batch: pd.DataFrame, 
+                      labels_column: str, 
+                      original_data_column: str, 
+                      context_groups: List[str]):
+        """
+        Process a batch of labels. This involves adjusting indicies for windowing (if context_groups were provided),
+        removing proceeding whitespace, and removing punctuation.
+
+        Parameters:
+        - df_batch (pd.DataFrame): The batch of the DataFrame to be processed. This can be the entire dataframe.
+        - labels_column (str): The name of the column where the labels will be stored.
+        - original_data_column (str): The original name of the column containing the data to be analyzed.
+        - context_groups (List[str]): A list of column names to group data  for analysis. If provided,
+        prior and proceeding data_columns will be combined and used as import to the model. 
+
+        Returns:
+        - pd.DataFrame: A DataFrame containing the processed batch. The specified labels column will be 
+        updated with new labels, and the original data column will be analyzed according to the context groups.
+        """
         for i in range(len(df_batch)):
             row = df_batch.iloc[i]
             trimmed_labels = []
@@ -105,9 +129,9 @@ class Analyzer():
                     if label['end'] > window_start and label['start'] < window_end:
 
                         # Neccessary for deberta based models
-                        label_start = self.remove_proceeding_space(row[original_data_column], 
-                                                                   max(label['start'] - window_start, 
-                                                                       0))
+                        label_start = self.remove_proceeding_space_and_punctuation(row[original_data_column], 
+                                                                                   max(label['start'] - window_start, 
+                                                                                       0))
                         
                         # Optional. This is a choice to offload a few known edge-cases from the anonymization call. In theory, any un-removed punctuation should be maintained by the gpt anonymization.
                         label_end = self.remove_trailing_punctuation(row[original_data_column], 
@@ -141,6 +165,22 @@ class Analyzer():
                 context_groups: List[str] = None,
                 batch_size: int = 16,
                 use_tqdm=True) -> pd.DataFrame:
+        """
+        Analyze specified data columns of the given DataFrame for entities with possible PII by processing.
+
+        Parameters:
+        - df (pd.DataFrame): The input DataFrame to be analyzed.
+        - data_columns (List[str]): A list of column names in the DataFrame that contain the data to be analyzed.
+        - context_groups (List[str], optional): A list of column names to group data  for analysis. If provided,
+        prior and proceeding data_columns will be combined and used as import to the model. Default is None.
+        - batch_size (int, optional): The number of rows to process in each batch to the gpu. Default is 16.
+        - use_tqdm (bool, optional): Whether to display a progress bar using tqdm. Default is True.
+
+        Returns:
+        - pd.DataFrame: A DataFrame containing the results of the analysis. New columns in the form '{data_column}_labels' are 
+        appended to the original dataframe and contain list of spans in the form (start_index, end_index, label_name) of the newly 
+        identified entities.
+        """
         
         data_columns = [col if col in df.columns else warnings.warn(f"Column '{data_column}' does not exist in the input dataframe. Skipping...") for col in data_columns]
         original_data_columns = data_columns

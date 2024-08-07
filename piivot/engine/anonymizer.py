@@ -143,7 +143,7 @@ class LabelAnonymizationManager():
     def name_feedback_func(self, original_text, anonymized_text):
         feedback = ""
         if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
-            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different word.")
+            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different name.")
             
         prior_mappings = self.get_prior_label_mappings("NAME")
         for prior_name in prior_mappings:
@@ -161,6 +161,9 @@ class LabelAnonymizationManager():
     
     def phone_number_feedback_func(self, original_text, anonymized_text):
         feedback = ""
+        if Levenshtein.distance(original_text, anonymized_text) <= self.distance_threshold:
+            feedback = self.append_feedback(feedback, f"{anonymized_text} is too similar to {original_text}. Ensure the anonymized replacement is a different phone number.")
+            
         if any(char.isalpha() for char in anonymized_text):
             feedback = self.append_feedback(feedback, f"{anonymized_text} contains alphabetic characters. Ensure the anonymized phone number doesn't have any placeholder characters.")
 
@@ -324,7 +327,23 @@ class Anonymizer():
                  missing_reprompt=gpt_missing_reprompt,
                  feedback_reprompt=gpt_feedback_reprompt,
                  reprompt_additional_tokens=896) -> None:
-        
+        """
+        Initialize the Anonymizer class with specified parameters for anonymizing future data. If no client is specified,
+        the class will not anonymize data, but will count tokens used for anonymization calls.
+
+        Parameters:
+        - label_manager: An object responsible for managing labels.
+        - client (Optional): The OpenAI client interface for interacting with the Chat-GPT. Default is None.
+        - assistant_general_prompt (str): The general prompt used for the GPT assistant.  Default is behavior is povided in class.
+        - temperature (float): The sampling temperature for the GPT model, affecting the randomness of the output. Default is 0.2.
+        - max_tokens (int): The maximum number of tokens to include in the model's output. Default is 3000.
+        - frequency_penalty (float): The penalty for token frequency in the GPmodel's output, controlling the likelihood of repeating tokens. Default is 0.0.
+        - gpt_model (str): The GPT model name. Default is "gpt-3.5-turbo".
+        - missing_reprompt (str): The prompt to use when the model's response is missing information. Default is behavior is povided in class.
+        - feedback_reprompt (str): The prompt to use when additional feedback is needed from the model.  Default is behavior is povided in class.
+        - reprompt_additional_tokens (int): The additional tokens to allocate for reprompting per call. Default is 896.
+
+        """
         self.label_manager = label_manager
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -568,7 +587,23 @@ class Anonymizer():
                   context_groups=None,
                   identifier_column=None,
                   debug_logs=True):
-        
+        """
+        Anonymize specified data columns in the given DataFrame by processing labeled sensitive information.
+
+        Parameters:
+        - df (pd.DataFrame): The input DataFrame containing the data to be anonymized.
+        - data_columns (List[str]): A list of column names in the DataFrame that contain the data to be anonymized.
+        - label_columns (List[str]): A list of column names where the labels are be stored.
+        - context_groups (List[str], optional): A list of column names that define the context groups for analysis. Grouped 
+        data will be batched in GPT calls. The behavior is recommend for cost and performance optimization. Default is None.
+        - identifier_column (str, optional): The name of the column containing personal identifiers for who the text data 
+        originates from if in a dialogue format. Default is None.
+        - debug_logs (bool, optional): Whether to store debug logs. Use print_logs or write_logs_to_file to retrieve. Default is True.
+
+        Returns:
+        - pd.DataFrame: A DataFrame containing the anonymized data and new lists of label spans in the form (start_index, end_index, label_name).
+        """
+
         self.debug_logs = debug_logs
         self.anonymize_call_count+=1
 

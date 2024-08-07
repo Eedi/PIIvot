@@ -139,9 +139,9 @@ analyzer = Analyzer("Eedi/DeBERTa-PIIvot-NER-IO")
 df = analyzer.analyze(df, data_columns=['message'])
 
 
-# gpt_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+gpt_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 label_anon_manager = LabelAnonymizationManager()
-anonymizer = Anonymizer(label_anon_manager)
+anonymizer = Anonymizer(label_anon_manager, client=gpt_client)
 
 anonymized_df = anonymizer.anonymize(df, data_columns=['message'], label_columns=['message_labels'])
 print(anonymized_df.head())

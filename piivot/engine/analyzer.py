@@ -145,8 +145,8 @@ class Analyzer():
                                                    label['entity_group']))
             else:
                 for label in row[labels_column]:
-                    label_start = self.remove_proceeding_space(row[original_data_column], 
-                                                               label['start'])
+                    label_start = self.remove_proceeding_space_and_punctuation(row[original_data_column],
+                                                                               label['start'])
                     label_end = self.remove_trailing_punctuation(row[original_data_column], 
                                                                  label['end'])
                     if label_end > label_start:

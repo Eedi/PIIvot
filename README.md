@@ -41,11 +41,14 @@ For a closer look, you can explore the core module's primary code located at `pi
     
     To anonymize data with the Anonymizer you’ll need an active OpenAI API key.
 
-- (Optional) Huggingface Account
+- Huggingface Account
   
     To use Eedi's finetuned models, you may need to request access for your Huggingface account. Once you've been granted access to the hub, use `huggingface-cli login` with a User Access Token that has 'Read access to contents of all public gated repos you can access'.
 ## 2.2 Installation <a id="installation"></a> ⏬
 
+- (Optional) W&B Account
+
+    To use the Experiment model training pipeline, you will need to log into a wandb account. Use 'wandb login' to set up your desired logging project.
 ### Poetry
 
 `piivot` uses `poetry` **(do not use `pip` or `conda`)**.

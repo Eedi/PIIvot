@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 import tiktoken
-import tqdm
+from tqdm.autonotebook import tqdm
 
 
 def match_casing(reference_string, target_string):
@@ -525,7 +525,12 @@ class Anonymizer:
         self.debug_logs = debug_logs
         self.anonymize_call_count += 1
 
-        for data_column, label_column in zip(data_columns, label_columns):
+        if use_tqdm:
+            zipped_data_columns = tqdm(zip(data_columns, label_columns), desc="Columns")
+        else:
+            zipped_data_columns = zip(data_columns, label_columns)
+
+        for data_column, label_column in zipped_data_columns:
             self.initialize_new_log(f"{self.anonymize_call_count}_{data_column}")
             # if context_groups:
             #     df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)

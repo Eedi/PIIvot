@@ -83,9 +83,9 @@ def is_tutor(isTutor):
             return "STUDENT"
 
 
-gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data. When two strings to be anonymized have similar spellings or contain similarly spelled words, ensure both replacements have similar spellings to each other. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. [original text] should always be lowercase, even if the text is cased differently in the chat history"
-gpt_missing_reprompt = "Your prior response is missing replacements for some of the required text. Make sure to create anonymized replacements for the exact spellings of all strings. Use prior responses to generate similarly spelled replacements for strings that were originally similarly spelled. Generate a dictionary in the form {[original_string]: [anonymized_string]} for the following list of strings."
-gpt_feedback_reprompt = "Your prior response doesn't meet all replacement criteria. Generate a dictionary in the form {[original_string]: [new_anonymized_string]} where the newly anonymized string follows the feedback provided after [[FEEDBACK]] for each of the following strings."
+gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data. When two strings to be anonymized have similar spellings or contain similarly spelled words, ensure both replacements have similar spellings to each other. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\. [original text] should always be lowercase, even if the text is cased differently in the chat history"
+gpt_missing_reprompt = "Your prior response is missing replacements for some of the required text. Make sure to create anonymized replacements for the exact spellings of all strings. Use prior responses to generate similarly spelled replacements for strings that were originally similarly spelled. Generate a dictionary in the form {[original_string]: [anonymized_string]} for the following list of strings. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\."
+gpt_feedback_reprompt = "Your prior response doesn't meet all replacement criteria. Generate a dictionary in the form {[original_string]: [new_anonymized_string]} where the newly anonymized string follows the feedback provided after [[FEEDBACK]] for each of the following strings. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\."
 
 
 def extract_dictionary(response):
@@ -104,9 +104,9 @@ def extract_dictionary(response):
             extracted_dict = ast.literal_eval(dict_str)
             if isinstance(extracted_dict, dict):
                 return extracted_dict
-        except (SyntaxError, ValueError):
-            pass
-    return None
+        except (SyntaxError, ValueError) as e:
+            return {"[[Error]]": f"{e}"}
+    return dict()
 
 
 class Anonymizer:
@@ -221,7 +221,7 @@ class Anonymizer:
         data: str,
         labels: List[Tuple[int, int, str]],
         new_mappings: Dict[str, str],
-    ) -> Tuple[str, List[Tuple[int, int, str]]]:
+    ) -> Tuple[str, List[Tuple[int, int, str]], bool]:
         """Anonymize the given data by applying the specified labels and new mappings.
 
         Args:
@@ -264,7 +264,7 @@ class Anonymizer:
                         new_labels[j][2],
                     )
 
-        return anonymized_data, new_labels
+        return anonymized_data, new_labels, False
 
     def generate_missing_reprompt(self, new_mappings, all_gpt_targets):
         reprompt = ""
@@ -305,7 +305,7 @@ class Anonymizer:
         assert_targets: List[str] = [],
         additional_max_tokens: int = 0,
         debug_content: str = "",
-    ) -> Dict[str, str]:
+    ) -> Tuple[Dict[str, str], bool]:
         """Generate new mappings for labeled substrings based on provided prompt messages.
 
         Args:
@@ -317,6 +317,7 @@ class Anonymizer:
 
         Returns:
             Dict[str, str]: A dictionary containing the new mappings generated from the prompt to gpt_client.
+            Bool: A flag denoting if there was an error generating new mappings.
         """
         if not debug_content:
             chat_completion = self.client.chat.completions.create(
@@ -337,9 +338,12 @@ class Anonymizer:
         new_mappings = {key.lower(): value for key, value in new_mappings.items()}
 
         if assert_targets:
-            assert all(
-                target in new_mappings for target in assert_targets
-            ), f"Elements still missing from {assert_targets} in response mapping {new_mappings}"
+            try:
+                assert all(
+                    target in new_mappings for target in assert_targets
+                ), f"Elements still missing from {assert_targets} in response mapping {new_mappings}"
+            except AssertionError as e:
+                return {"[[Error]]": e}, True
 
         labeled_mappings = {}
         for label in labeled_substrings:
@@ -352,7 +356,7 @@ class Anonymizer:
             pass
         self.label_manager.update_prior_label_mappings(labeled_mappings)
 
-        return new_mappings
+        return new_mappings, False
 
     def anonymize_group(
         self,
@@ -421,7 +425,9 @@ class Anonymizer:
             self.log(f"Sending prompt:\n{messages}")
 
             if self.client:
-                new_mappings = self.generate_new_mappings(messages, labeled_substrings)
+                new_mappings, _ = self.generate_new_mappings(
+                    messages, labeled_substrings
+                )
 
                 missing_reprompt, missing_targets = self.generate_missing_reprompt(
                     new_mappings, all_gpt_targets
@@ -436,12 +442,23 @@ class Anonymizer:
                     ]
                     self.log(f"Sending prompt:\n{messages}")
 
-                    new_mappings = new_mappings | self.generate_new_mappings(
+                    added_mappings, error = self.generate_new_mappings(
                         messages,
                         labeled_substrings,
                         assert_targets=missing_targets,
                         additional_max_tokens=self.reprompt_additional_tokens,
                     )
+
+                    if error:
+                        group[f"anonymized_{data_column}"] = group[data_column]
+                        group[f"new_{label_column}"] = group.apply(
+                            lambda _: new_mappings, axis=1
+                        )
+                        group["has_error"] = True
+
+                        return group
+
+                    new_mappings = new_mappings | added_mappings
 
                 feedback_reprompt, reprompt_targets = self.generate_feedback_reprompt(
                     new_mappings, labeled_substrings, all_gpt_targets
@@ -456,12 +473,23 @@ class Anonymizer:
                     ]
                     self.log(f"Sending prompt:\n{messages}")
 
-                    new_mappings = new_mappings | self.generate_new_mappings(
+                    added_mappings, error = self.generate_new_mappings(
                         messages,
                         labeled_substrings,
                         assert_targets=reprompt_targets,
                         additional_max_tokens=self.reprompt_additional_tokens,
                     )
+
+                    if error:
+                        group[f"anonymized_{data_column}"] = group[data_column]
+                        group[f"new_{label_column}"] = group.apply(
+                            lambda _: new_mappings, axis=1
+                        )
+                        group["has_error"] = True
+
+                        return group
+
+                    new_mappings = new_mappings | added_mappings
 
             else:
                 self.token_count.append(
@@ -470,7 +498,9 @@ class Anonymizer:
                 )
 
         # group[[f'anonymized_{data_column}', f'new_{label_column}']] = group.apply(lambda row: self.anonymize_data(row[data_column], row[label_column], self.label_manager.get_prior_label_mappings("NAME") | new_mappings), axis=1, result_type ='expand')
-        group[[f"anonymized_{data_column}", f"new_{label_column}"]] = group.apply(
+        group[
+            [f"anonymized_{data_column}", f"new_{label_column}", "has_error"]
+        ] = group.apply(
             lambda row: self.anonymize_data(
                 row[data_column], row[label_column], new_mappings
             ),

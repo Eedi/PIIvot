@@ -249,12 +249,12 @@ class Anonymizer:
                         new_mappings[original_text.lower()], original_text
                     )
                 else:
-                    # update down index label indicies by the new length of the
                     new_text = f"[[{label_name}]]"
 
                 anonymized_data = (
                     anonymized_data[: label[0]] + new_text + anonymized_data[label[1] :]
                 )
+                # update down index label indicies by the new length of the
                 offset = len(new_text) - len(original_text)
                 new_labels[i] = (label[0], label[1] + offset, label[2])
                 for j in range(i + 1, len(new_labels)):

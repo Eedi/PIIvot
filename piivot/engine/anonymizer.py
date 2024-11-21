@@ -519,6 +519,7 @@ class Anonymizer:
         identifier_column: str = None,
         debug_logs: bool = True,
         use_tqdm: bool = True,
+        checkpoint_file: str = "recovery_checkpoint.pkl",  # File to save progress
     ) -> pd.DataFrame:
         """Anonymize specified data columns in the given DataFrame by processing labeled sensitive information.
 
@@ -555,46 +556,65 @@ class Anonymizer:
         self.debug_logs = debug_logs
         self.anonymize_call_count += 1
 
-        if use_tqdm:
-            zipped_data_columns = tqdm(zip(data_columns, label_columns), desc="Columns")
-        else:
-            zipped_data_columns = zip(data_columns, label_columns)
-
-        for data_column, label_column in zipped_data_columns:
-            self.initialize_new_log(f"{self.anonymize_call_count}_{data_column}")
-            # if context_groups:
-            #     df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
-            # else:
-            #     df = df.groupby(level=0).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
-
-            if context_groups:
-                data_grouped = df.groupby(context_groups)
-            else:
-                data_grouped = df.groupby(level=0)
-            result = []
+        try:
             if use_tqdm:
-                data_groups = tqdm(
-                    data_grouped, total=len(data_grouped), desc="Anonymizing groups"
+                zipped_data_columns = tqdm(
+                    zip(data_columns, label_columns), desc="Columns"
                 )
+            else:
+                zipped_data_columns = zip(data_columns, label_columns)
 
-            for name, group in data_groups:
-                result.append(
-                    self.anonymize_group(
-                        group,
-                        data_column,
-                        label_column,
-                        dialogue_identifier_column=identifier_column,
+            for data_column, label_column in zipped_data_columns:
+                self.initialize_new_log(f"{self.anonymize_call_count}_{data_column}")
+                # if context_groups:
+                #     df = df.groupby(context_groups).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
+                # else:
+                #     df = df.groupby(level=0).apply(lambda group: self.anonymize_group(group, data_column, label_column, dialogue_identifier_column=identifier_column)).reset_index(drop=True)
+
+                if context_groups:
+                    data_grouped = df.groupby(context_groups)
+                else:
+                    data_grouped = df.groupby(level=0)
+                result = []
+                if use_tqdm:
+                    data_groups = tqdm(
+                        data_grouped, total=len(data_grouped), desc="Anonymizing groups"
                     )
+
+                try:
+                    for name, group in data_groups:
+                        try:
+                            anonymized_group = self.anonymize_group(
+                                group,
+                                data_column,
+                                label_column,
+                                dialogue_identifier_column=identifier_column,
+                            )
+                            result.append(anonymized_group)
+                        except Exception as e:
+                            warnings.warn(
+                                f"Error processing group {name}: {e}. Skipping..."
+                            )
+                            continue
+                except KeyboardInterrupt:
+                    print("Process interrupted. Saving current progress...")
+                except Exception as e:
+                    print(f"An error occurred: {e}. Saving progress...")
+                finally:
+                    df = pd.concat(result).reset_index(drop=True)
+
+            if not self.client:
+                # Issue a simple warning
+                warnings.warn(
+                    f"GPT client not set. Columns {data_columns} were not anonymized."
+                )
+                print(
+                    f"Using a live gpt client would cost a minimum of {sum(self.token_count)} with up to ~3x tokens for subsequent reprompts."
                 )
 
-            df = pd.concat(result).reset_index(drop=True)
-        if not self.client:
-            # Issue a simple warning
-            warnings.warn(
-                f"GPT client not set. Columns {data_columns} were not anonymized."
-            )
-            print(
-                f"Using a live gpt client would cost a minimum of {sum(self.token_count)} with up to ~3x tokens for subsequent reprompts."
-            )
-
-        return df.drop(columns=data_columns + label_columns)
+        except KeyboardInterrupt:
+            print("Process interrupted. Returning current progress...")
+        except Exception as e:
+            print(f"An error occurred: {e}. Returning progress...")
+        finally:
+            return df.drop(columns=data_columns + label_columns)

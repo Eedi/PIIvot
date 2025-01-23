@@ -81,6 +81,8 @@ def is_tutor(isTutor):
             return "TUTOR"
         case 0:
             return "STUDENT"
+        case 2:
+            return "ANCHOR_QUESTION"
 
 
 gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data. When two strings to be anonymized have similar spellings or contain similarly spelled words, ensure both replacements have similar spellings to each other. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\. [original text] should always be lowercase, even if the text is cased differently in the chat history"

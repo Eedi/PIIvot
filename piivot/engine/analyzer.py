@@ -26,6 +26,7 @@ class Analyzer:
         "{",
         "}",
         "'",
+        "’",
         '"',
         ";",
         ":",
@@ -56,7 +57,10 @@ class Analyzer:
         while end_index > 0 and data[end_index - 1] in Analyzer.punctuation_chars:
             end_index -= 1
 
-        if end_index > 2 and data[end_index - 2 : end_index] == "'s":
+        if end_index > 2 and (
+            data[end_index - 2 : end_index] == "'s"
+            or data[end_index - 2 : end_index] == "’s"
+        ):
             end_index = end_index - 2
 
         return end_index
@@ -68,7 +72,7 @@ class Analyzer:
         start_index = start_index + non_whitespace_index
 
         while (
-            start_index <= len(data) and data[start_index] in Analyzer.punctuation_chars
+            start_index < len(data) and data[start_index] in Analyzer.punctuation_chars
         ):
             start_index += 1
 

@@ -85,7 +85,8 @@ def is_tutor(isTutor):
             return "ANCHOR_QUESTION"
 
 
-gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data. When two strings to be anonymized have similar spellings or contain similarly spelled words, ensure both replacements have similar spellings to each other. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\. [original text] should always be lowercase, even if the text is cased differently in the chat history"
+gpt_general_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data and words without similar spellings. When multiple original_strings have similar spellings or contain similarly spelled words, ensure their anonymized_strings share similar spellings to each other (i.e., if 'Fred': 'George' then 'Fred Luther': 'George Fischer'). Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\. [original text] should always be lowercase, even if the text is cased differently in the chat history"
+gpt_general_existing_prompt = "Given a multiple labeled lists strings in the form [[LABEL_TYPE]]:[list of strings], find surrogate replacements for each that anonymize the original string but are not obviously anonymized. It should be difficult to guess what the original string was based on the anonymized surrogate. Favor using words not present in the data and words without similar spellings. When multiple original_strings have similar spellings or contain similarly spelled words, ensure their anonymized_strings share similar spellings to each other (i.e., if 'Fred': 'George' then 'Fred Luther': 'George Fischer'). Existing anonymizations for this chat are provided under [[EXISTING ANONYMIZATIONS]]. Use chat history under [[CHAT HISTORY]] to ensure each replacement makes logical sense in the context of all messages in the chat history. Your response should be a dictionary in the form {[original text]: [anonymized text]}. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\. [original text] should always be lowercase, even if the text is cased differently in the chat history"
 gpt_missing_reprompt = "Your prior response is missing replacements for some of the required text. Make sure to create anonymized replacements for the exact spellings of all strings. Use prior responses to generate similarly spelled replacements for strings that were originally similarly spelled. Generate a dictionary in the form {[original_string]: [anonymized_string]} for the following list of strings. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\."
 gpt_feedback_reprompt = "Your prior response doesn't meet all replacement criteria. Generate a dictionary in the form {[original_string]: [new_anonymized_string]} where the newly anonymized string follows the feedback provided after [[FEEDBACK]] for each of the following strings. The dictionary should be parsable using ast.literal_eval() meaning all nested single and double quotes should be escaped with \\."
 
@@ -111,12 +112,50 @@ def extract_dictionary(response):
     return dict()
 
 
+def consolidate_group_mappings(group, existing_mappings_column=None):
+    """Consolidates all dictionaries in `existing_mappings_column` within the given group into one dictionary.
+
+    Args:
+        group (DataFrame): The group of rows to process.
+        existing_mappings_column (str or None): The column name containing dictionaries (string-to-string).
+
+    Returns:
+        dict: A consolidated dictionary of all mappings in the group.
+
+    Raises:
+        ValueError: If any keys in the dictionaries map to different values.
+    """
+    if existing_mappings_column is None:
+        return {}  # Return an empty dictionary if no column is provided
+
+    consolidated_mapping = {}
+
+    for idx, row in group.iterrows():
+        mappings = row[existing_mappings_column]
+
+        if not isinstance(mappings, dict):
+            raise ValueError(f"'{mappings}' in existing_mappings_column is not a dict")
+
+        for key, value in mappings.items():
+            if key in consolidated_mapping:
+                # Raise an error if the key maps to a different value
+                if consolidated_mapping[key] != value:
+                    raise ValueError(
+                        f"Conflict detected for key '{key}': '{consolidated_mapping[key]}' vs '{value}'"
+                    )
+            else:
+                consolidated_mapping[key] = value
+
+    return consolidated_mapping
+
+
 class Anonymizer:
     def __init__(
         self,
         label_manager,
         client=None,
         assistant_general_prompt=gpt_general_prompt,
+        assistant_general_existing_prompt=gpt_general_existing_prompt,
         temperature=0.2,
         max_tokens=3000,  # Not include dialogues above the limit ->
         frequency_penalty=0.0,
@@ -145,6 +184,7 @@ class Anonymizer:
         self.max_tokens = max_tokens
         self.frequency_penalty = frequency_penalty
         self.assistant_general_prompt = assistant_general_prompt
+        self.assistant_general_existing_prompt = gpt_general_existing_prompt
         self.gpt_model = gpt_model
         self.client = client
         self.missing_reprompt = missing_reprompt
@@ -365,6 +405,7 @@ class Anonymizer:
         group,
         data_column: str,
         label_column: str,
+        existing_mappings_column: str,
         group_name: str = "CHAT HISTORY",
         dialogue_identifier_column: str = "IsTutor",
         dialogue_identifier_func=is_tutor,
@@ -386,7 +427,14 @@ class Anonymizer:
             group, data_column, label_column
         )
 
-        assistant_group_prompt = self.assistant_general_prompt
+        new_mappings = consolidate_group_mappings(group, existing_mappings_column)
+        self.label_manager.set_prior_label_mappings(new_mappings)
+
+        if new_mappings:
+            assistant_group_prompt = self.assistant_general_existing_prompt
+        else:
+            assistant_group_prompt = self.assistant_general_prompt
+
         group_prompt = ""
         all_gpt_targets = []
         for label in labeled_substrings:
@@ -395,13 +443,15 @@ class Anonymizer:
             if label in self.label_manager.label_names:
                 gpt_target_list = labeled_substrings[label]
 
+            # trim targets down to one's without existing mappings
+            gpt_target_list = [
+                item for item in gpt_target_list if item not in new_mappings.keys()
+            ]
+
             if gpt_target_list:
                 all_gpt_targets.extend(gpt_target_list)
                 assistant_group_prompt = f"{assistant_group_prompt}\n{self.label_manager.assistant_label_prompts[label]}"
                 group_prompt = f"{group_prompt} [[{label}]]:{gpt_target_list}"  # -> "Hi Tom, how are you? I'm good cindy! Just raining here in new york" -> [[NAME]] [tom, cindy] [[LOCATION_ADDRESS]] [new york]
-
-        new_mappings = {}
-        self.label_manager.clear_prior_label_mappings()
 
         if all_gpt_targets:
             # append [[TUTOR]] or [[STUDENT]] to each message based on the speaker
@@ -415,6 +465,11 @@ class Anonymizer:
             else:
                 grouped_data = "\n".join(
                     [f"{row[data_column]}" for _, row in group.iterrows()]
+                )
+
+            if new_mappings:
+                group_prompt = (
+                    f"{group_prompt}\n[[EXISTING ANONYMIZATIONS]]\n{new_mappings}"
                 )
 
             group_prompt = f"{group_prompt}\n[[{group_name}]]\n{grouped_data}"
@@ -518,6 +573,7 @@ class Anonymizer:
         data_columns: List[str],
         label_columns: List[str],
         context_groups: List[str] = None,
+        existing_mappings_column: str = None,
         identifier_column: str = None,
         debug_logs: bool = True,
         use_tqdm: bool = True,
@@ -544,6 +600,11 @@ class Anonymizer:
             )
 
         input_length = len(data_columns)
+        if existing_mappings_column and input_length > 1:
+            raise Exception(
+                "existing_mappings_column only supports data_columns of length 1."
+            )
+
         for i, (data_column, label_column) in enumerate(
             zip(reversed(data_columns), reversed(label_columns))
         ):
@@ -590,6 +651,7 @@ class Anonymizer:
                                 group,
                                 data_column,
                                 label_column,
+                                existing_mappings_column,
                                 dialogue_identifier_column=identifier_column,
                             )
                             result.append(anonymized_group)
@@ -619,4 +681,5 @@ class Anonymizer:
         except Exception as e:
             print(f"An error occurred: {e}. Returning progress...")
         finally:
-            return df.drop(columns=data_columns + label_columns)
+            return df
+            # return df.drop(columns=data_columns + label_columns)

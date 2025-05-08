@@ -43,7 +43,7 @@ For a closer look, you can explore the core module's primary code located at `pi
 
 - Huggingface Account
   
-    To use Eedi's finetuned models, you may need to request access for your Huggingface account. Once you've been granted access to the hub, use `huggingface-cli login` with a User Access Token that has 'Read access to contents of all public gated repos you can access'.
+    To use finetuned models, you may need to request access for your Huggingface account. Once you've been granted access to the hub, use `huggingface-cli login` with a User Access Token that has 'Read access to contents of all public gated repos you can access'.
   
 - (Optional) W&B Account
 
@@ -82,7 +82,7 @@ To create the environment:
     
     ```
     
-- Linux/ Eedi VM <a id="linux"></a>
+- Linux <a id="linux"></a>
     
     ```bash
     export PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring
@@ -139,7 +139,7 @@ data = [
 ]
 df = pd.DataFrame(data, columns=["message"])
 
-analyzer = Analyzer("Eedi/DeBERTa-PIIvot-NER-IO")
+analyzer = Analyzer("[[your huggingface NER model]]")
 df = analyzer.analyze(df, data_columns=['message'])
 
 
@@ -169,7 +169,7 @@ Previously we would have installed the package globally using `pip install -e .`
 1. Clone the repository:
     
     ```bash
-    git clone git@github.com:Eedi/PIIvot.git
+    git clone [[repo_path]]
     
     ```
     
@@ -201,7 +201,7 @@ Previously we would have installed the package globally using `pip install -e .`
 
 # 4. Backend Model Training 🏋️‍♂️<a id="experimentation"></a>
 
-PIIvot has built in support for a variety of model fine-tuning and experimentation use cases. This code is highly tailored to the Eedi Tutor/Student Dialogue dataset and further work is need to generalize the experimentation pipeline to any dataset.
+PIIvot has built in support for a variety of model fine-tuning and experimentation use cases. This code is highly tailored to the Tutor/Student Dialogue dataset and further work is need to generalize the experimentation pipeline to any dataset.
 
 ## Prerequisites <a id="prereq"></a> 📋
 

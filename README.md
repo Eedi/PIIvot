@@ -139,11 +139,11 @@ data = [
 ]
 df = pd.DataFrame(data, columns=["message"])
 
-analyzer = Analyzer("")
+analyzer = Analyzer("dslim/bert-base-NER")
 df = analyzer.analyze(df, data_columns=['message'])
 
 # For this demo we demonstrate how to apply an open-source NER model to the PIIvot NER labeling task
-gpt_client = OpenAI(api_key="dslim/bert-base-NER")
+gpt_client = OpenAI(api_key="[[Your API key...]]")
 label_anon_manager = LabelAnonymizationManager()
 # Rename labels from QATD_2k to configure label manager for dslim/bert-base-NER 
 label_anon_manager.rename_label("NAME", "PER")

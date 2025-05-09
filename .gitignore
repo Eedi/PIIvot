@@ -170,3 +170,6 @@ test.py
 test.ipynb
 repaired_*.pt
 results/
+
+# VS Code
+.vscode/

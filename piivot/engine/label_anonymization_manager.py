@@ -226,6 +226,21 @@ class LabelAnonymizationManager:
         # Add a class for each label -> has a name, feedback, and prompt for label -> require each peice.
         # Register each of these classes to the default behavior of the anonymization manager
 
+    def rename_label(self, original_name, new_name):
+        if original_name not in self.label_names:
+            raise ValueError(f"Label '{original_name}' does not exist in label_names.")
+
+        index = self.label_names.index(original_name)
+        self.label_names[index] = new_name
+
+        self.feedback_func_dictionary[new_name] = self.feedback_func_dictionary.pop(
+            original_name
+        )
+
+        self.assistant_label_prompts[new_name] = self.assistant_label_prompts.pop(
+            original_name
+        )
+
     def get_anoymization_feedback(self, label_name, original_text, anonymized_text):
         if original_text in self.set_mappings:
             # Can't give feedback if mappings are already set

@@ -139,16 +139,38 @@ data = [
 ]
 df = pd.DataFrame(data, columns=["message"])
 
-analyzer = Analyzer("[[your huggingface NER model]]")
+analyzer = Analyzer("dslim/bert-base-NER")
 df = analyzer.analyze(df, data_columns=['message'])
 
-
-gpt_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# For this demo we demonstrate how to apply an open-source NER model to the PIIvot NER labeling task
+gpt_client = OpenAI(api_key="[[Your API key...]]")
 label_anon_manager = LabelAnonymizationManager()
+# Rename labels from QATD_2k to configure label manager for dslim/bert-base-NER 
+label_anon_manager.rename_label("NAME", "PER")
+label_anon_manager.rename_label("LOCATION_ADDRESS", "LOC")
+
 anonymizer = Anonymizer(label_anon_manager, client=gpt_client)
 
 anonymized_df = anonymizer.anonymize(df, data_columns=['message'], label_columns=['message_labels'])
-print(anonymized_df.head())
+anonymized_df.head()
+```
+
+Using context_groups to preserve anonymizations between rows
+
+```python
+data2 = [
+    {"conversation_id": 1, "message": "Hi, I'm John and I live in New York."},
+    {"conversation_id": 1, "message": "Hello John, my name is Jane and I live in Los Angeles which is pretty far from New York."},
+    {"conversation_id": 2, "message": "Hey, I'm Alice from Portland."},
+    {"conversation_id": 2, "message": "Greetings Alice, I'm Bob and I'm based in Seattle which is pretty close to Portland!"},
+    {"conversation_id": 2, "message": "Great to meet you Alice! We'll have to meet up sometime."},
+]
+df2 = pd.DataFrame(data2, columns=["message", "conversation_id"])
+
+df2 = analyzer.analyze(df2, data_columns=['message'], context_groups=['conversation_id'])
+
+anonymized_df2 = anonymizer.anonymize(df2, data_columns=['message'], label_columns=['message_labels'], context_groups=['conversation_id'])
+anonymized_df2.head()
 ```
 
 If running locally in a Jupyter Notebook, you can import the PIIvot Repo with the following code.
@@ -161,6 +183,7 @@ module_path = os.path.abspath([[Path to PIIvot Repo]])
 if module_path not in sys.path:
     sys.path.append(module_path)
 ```
+
 
 ## Using `PIIvot` in other repositories <a id=otherRepo></a>
 
